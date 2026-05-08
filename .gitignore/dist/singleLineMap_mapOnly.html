@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map Only</title>
+
+    <script src="http://25.42.182.119/narimap/libs/thematic/symbols.js"></script>
+    <script src="http://25.42.182.119/narimap/libs/thematic/ngis.umd.min.js"></script>
+    <script src="http://25.42.182.119/narimap/libs/thematic/d3.v7.min.js"></script>
+    <script src="http://25.42.182.119/sgepriamapsdk/libs/narimap.umd.min.js"></script>
+
+    <link rel="stylesheet" href="http://25.42.182.119/sgepriamapsdk/css/narimap.umd.css"/>
+    <link rel="stylesheet" href="http://25.42.182.119/sgepriamapsdk/css/nrgis-common.min.css"/>
+
+    <style>
+        html, body, #map {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .key-user-region-marker {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: 2px solid #ffffff;
+            background: radial-gradient(circle at 30% 30%, #ff8f8f, #f21b29 68%, #b8000d);
+            box-shadow: 0 0 0 2px rgba(255, 36, 36, 0.34), 0 3px 8px rgba(0, 0, 0, 0.35);
+            cursor: pointer;
+            position: relative;
+        }
+
+        .key-user-region-marker::before {
+            content: "";
+            position: absolute;
+            width: 9px;
+            height: 12px;
+            background: #ffffff;
+            clip-path: polygon(38% 0%, 100% 0%, 64% 45%, 100% 45%, 20% 100%, 45% 58%, 8% 58%);
+        }
+
+        .key-user-region-marker.active {
+            transform: scale(1.08);
+            box-shadow: 0 0 0 2px rgba(255, 36, 36, 0.45), 0 4px 10px rgba(0, 0, 0, 0.4);
+        }
+
+        .county-popup-content {
+            margin: 0;
+            padding: 1px 2px;
+            white-space: nowrap;
+            font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+        }
+
+        .county-popup-title {
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.2;
+            color: #ff1d1d;
+            font-weight: 700;
+        }
+
+        .county-popup-summary {
+            margin: 2px 0 0;
+            font-size: 12px;
+            line-height: 1.25;
+            color: #ff1d1d;
+            font-weight: 600;
+        }
+
+        .feeder-popup-content {
+            margin: 0;
+            padding: 1px 2px;
+            white-space: nowrap;
+            font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+        }
+
+        .feeder-popup-title {
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.2;
+            color: #ff1d1d;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+<div id="map"></div>
+
+<script>
+    if (!window.narimap) {
+        alert("narimap SDK 未加载成功，请检查内网连通性和脚本地址。");
+        throw new Error("narimap is not defined");
+    }
+
+    narimap.publicKey = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCls8dST+VPwyuLNz4tpHE/Xp0veW9qUtqeU9GOx5iLjiUYKW7Rq9X/tC5qwqS2ayl2Eux3NASPl1oc61unrlkQ67Q/GQWjGVNXgTmyYVKe3RiV75tjaIMlVtGtt740y+fpu+tbBhS9mKQMEDCQiSCz1PMHsXpPXfwHuW7nZlf6MwIDAQAB";
+    const tangshanHighlightSourceId = "tangshan-highlight-source";
+    const tangshanHighlightFillLayerId = "tangshan-highlight-fill-layer";
+    const tangshanHighlightLineLayerId = "tangshan-highlight-line-layer";
+    const keyUserCountyMarkersMessageType = "KEY_USER_COUNTY_MARKERS";
+    const keyUserCountyMarkersClearMessageType = "KEY_USER_COUNTY_MARKERS_CLEAR";
+    const keyUserMapReadyMessageType = "KEY_USER_MAP_READY";
+    const mapCountyFocusMessageType = "MAP_COUNTY_FOCUS";
+    const mapOutageFeederLocateMessageType = "MAP_OUTAGE_FEEDER_LOCATE";
+    const defaultFeederDevType = "xl01";
+    const defaultCenter = [118.180194, 39.630867];
+    const defaultOrgId = "130200";
+    const tangshanBoundaryGeoJson = {"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"Tangshan"},"geometry":{"type":"Polygon","coordinates":[[[118.693001,39.148093],[118.796662,39.135402],[118.8579,39.162858],[118.897217,39.15149],[118.9511,39.178468],[118.885722,39.123966],[118.926311,39.123494],[119.096058,39.241975],[119.174185,39.335824],[119.27276,39.36361],[119.319034,39.429564],[119.269074,39.424208],[119.212322,39.46345],[119.071105,39.476395],[119.054579,39.45988],[119.013136,39.464671],[119.008124,39.50935],[118.956711,39.524164],[118.983298,39.538959],[118.938478,39.557565],[118.895147,39.547043],[118.861332,39.574775],[118.775124,39.764853],[118.82541,39.799431],[118.81682,39.825864],[118.884214,39.961774],[118.86569,40.059883],[118.918265,40.092203],[118.924767,40.149668],[118.906733,40.169675],[118.794501,40.204839],[118.743579,40.191767],[118.74376,40.210878],[118.571398,40.269821],[118.568946,40.287549],[118.532589,40.300603],[118.540016,40.361059],[118.558595,40.370267],[118.550895,40.385482],[118.571507,40.414621],[118.548407,40.422711],[118.503205,40.40335],[118.402668,40.41686],[118.39179,40.436371],[118.306598,40.419577],[118.277923,40.425721],[118.239658,40.464655],[118.158844,40.424409],[118.164891,40.396988],[118.121832,40.354662],[118.0793,40.353503],[118.070329,40.327027],[118.031629,40.30235],[117.807799,40.261914],[117.751501,40.229752],[117.694114,40.238173],[117.646242,40.205195],[117.575852,40.193192],[117.584115,40.171766],[117.650147,40.128183],[117.649584,40.091273],[117.668108,40.100921],[117.6749,40.082135],[117.697256,40.09484],[117.755587,40.079544],[117.776145,40.058936],[117.747905,40.047451],[117.744146,40.018433],[117.782447,40.023511],[117.796303,39.99863],[117.781848,39.966312],[117.756441,39.965178],[117.706681,39.986016],[117.631877,39.968706],[117.599642,39.993752],[117.537497,39.997387],[117.54734,39.976848],[117.511146,39.941085],[117.525511,39.92961],[117.50399,39.904851],[117.548538,39.845405],[117.540856,39.821939],[117.568243,39.799244],[117.543308,39.760613],[117.595883,39.746131],[117.580047,39.719449],[117.646969,39.699638],[117.668326,39.667086],[117.666473,39.642919],[117.620999,39.592825],[117.636817,39.6037],[117.65565,39.574916],[117.681637,39.589982],[117.705864,39.576495],[117.685687,39.564428],[117.708442,39.555079],[117.715943,39.530091],[117.744982,39.548466],[117.737736,39.574057],[117.767537,39.599747],[117.868274,39.596841],[117.933979,39.57415],[117.905376,39.535096],[117.898203,39.472513],[117.870344,39.454948],[117.871852,39.41155],[117.847081,39.408072],[117.865713,39.378267],[117.805293,39.373298],[117.803368,39.362042],[117.837038,39.350816],[117.852075,39.369614],[117.862935,39.362277],[117.841941,39.33642],[117.849641,39.327371],[117.966051,39.316421],[117.995707,39.288805],[118.028378,39.290438],[118.036496,39.265151],[118.064772,39.255934],[118.065607,39.235127],[118.037077,39.230525],[118.026217,39.201775],[118.070438,39.214046],[118.125301,39.182759],[118.229289,39.031959],[118.319256,39.009526],[118.372321,39.015859],[118.378024,38.971763],[118.491055,38.90907],[118.525252,38.904873],[118.604468,38.971479],[118.57049,38.999204],[118.532861,39.091065],[118.583729,39.100948],[118.578753,39.130919],[118.592737,39.14262],[118.651704,39.155216],[118.693001,39.148093]]]}}]};
+    let mapInstance = null;
+    let psrMapInstance = null;
+    let powerManageGridMap = null;
+    let countyGridUnits = [];
+    let countyGridReady = false;
+    let keyUserCountyMarkers = [];
+    let keyUserCountyMarkerNodes = [];
+    let keyUserCountyPopups = [];
+    let pendingCountyStats = [];
+    let pendingCountyFocusPayload = null;
+    let feederPopup = null;
+    let pendingFeederLocatePayload = null;
+
+    function getMarkerConstructor() {
+        return narimap.Marker || narimap?.covers?.Marker || null;
+    }
+
+    function getPopupConstructor() {
+        return narimap.Popup || narimap?.covers?.Popup || null;
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#39;");
+    }
+
+    function createCountyMarkerElement(isActive) {
+        const markerNode = document.createElement("div");
+        markerNode.className = `key-user-region-marker${isActive ? " active" : ""}`;
+        return markerNode;
+    }
+
+    function setActiveCountyMarker(countyName) {
+        keyUserCountyMarkerNodes.forEach((item) => {
+            if (!item || !item.node) {
+                return;
+            }
+            item.node.classList.toggle("active", item.countyName === countyName);
+        });
+    }
+
+    function clearCountyPopup() {
+        keyUserCountyPopups.forEach((popup) => {
+            if (popup && typeof popup.remove === "function") {
+                popup.remove();
+            }
+        });
+        keyUserCountyPopups = [];
+    }
+
+    function clearFeederPopup() {
+        if (feederPopup && typeof feederPopup.remove === "function") {
+            feederPopup.remove();
+        }
+        feederPopup = null;
+    }
+
+    function normalizeLngLat(value) {
+        if (!value) {
+            return null;
+        }
+
+        let lng = null;
+        let lat = null;
+
+        if (Array.isArray(value)) {
+            lng = Number(value[0]);
+            lat = Number(value[1]);
+        } else if (typeof value.getLng === "function" && typeof value.getLat === "function") {
+            lng = Number(value.getLng());
+            lat = Number(value.getLat());
+        } else {
+            lng = Number(value.lng);
+            lat = Number(value.lat);
+        }
+
+        if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+            return null;
+        }
+        return [lng, lat];
+    }
+
+    function getMapCenterLngLat() {
+        if (!mapInstance || typeof mapInstance.getCenter !== "function") {
+            return defaultCenter;
+        }
+        const center = normalizeLngLat(mapInstance.getCenter());
+        return center || defaultCenter;
+    }
+
+    function getFeederPopupContent(feederName) {
+        return `
+            <div class="feeder-popup-content">
+                <p class="feeder-popup-title">${escapeHtml(feederName || "馈线")}</p>
+            </div>
+        `;
+    }
+
+    function openFeederPopup(feederName) {
+        if (!mapInstance) {
+            return;
+        }
+        const PopupCtor = getPopupConstructor();
+        if (!PopupCtor) {
+            return;
+        }
+
+        clearFeederPopup();
+
+        let popup = null;
+        try {
+            popup = new PopupCtor({
+                closeButton: false,
+                closeOnClick: false,
+                anchor: "bottom",
+                offset: [0, -18],
+                maxWidth: "360px",
+            });
+        } catch (_error) {
+            popup = new PopupCtor();
+        }
+
+        const content = getFeederPopupContent(feederName);
+        if (typeof popup.setHTML === "function") {
+            popup.setHTML(content);
+        } else if (typeof popup.setHtml === "function") {
+            popup.setHtml(content);
+        }
+        if (typeof popup.setLngLat === "function") {
+            popup.setLngLat(getMapCenterLngLat());
+        }
+        if (typeof popup.addTo === "function") {
+            popup.addTo(mapInstance);
+        }
+        feederPopup = popup;
+    }
+
+    function locateOutageFeeder(payload) {
+        pendingFeederLocatePayload = payload ?? null;
+        const feederId = String(payload?.rdtFeederId || payload?.feederId || "").trim();
+        if (!feederId || !psrMapInstance || typeof psrMapInstance.flyToDevices !== "function") {
+            return;
+        }
+
+        const feederName = String(payload?.rdtFeederName || payload?.feederName || feederId).trim() || feederId;
+        const feederDevType = String(payload?.devType || payload?.rdtFeederDevType || defaultFeederDevType).trim() || defaultFeederDevType;
+        const flyOptions = { hightlight: true };
+
+        const showPopup = function () {
+            window.setTimeout(function () {
+                openFeederPopup(feederName);
+            }, 320);
+        };
+
+        let result = null;
+        try {
+            result = psrMapInstance.flyToDevices([{ devId: feederId, devType: feederDevType }], flyOptions);
+        } catch (error) {
+            console.warn("fly to feeder with devType failed", error);
+            try {
+                result = psrMapInstance.flyToDevices([{ devId: feederId }], flyOptions);
+            } catch (fallbackError) {
+                console.warn("fly to feeder failed", fallbackError);
+                return;
+            }
+        }
+
+        if (result && typeof result.then === "function") {
+            result
+                .then(showPopup)
+                .catch(function (error) {
+                    console.warn("fly to feeder failed", error);
+                    showPopup();
+                });
+            return;
+        }
+        showPopup();
+    }
+
+    function clearCountyMarkers() {
+        keyUserCountyMarkers.forEach((item) => {
+            const marker = item?.marker || item;
+            if (marker && typeof marker.remove === "function") {
+                marker.remove();
+            }
+        });
+        keyUserCountyMarkers = [];
+        keyUserCountyMarkerNodes = [];
+        clearCountyPopup();
+    }
+
+    function normalizeRegionName(name) {
+        return String(name ?? "")
+            .replaceAll("国网", "")
+            .replaceAll("供电公司", "")
+            .replaceAll("供电中心", "")
+            .replaceAll("公司", "")
+            .replaceAll(" ", "")
+            .replaceAll("　", "")
+            .replace(/^唐山市?/, "")
+            .trim();
+    }
+
+    function getCountyGridUnitByName(countyName) {
+        const target = normalizeRegionName(countyName);
+        if (!target || countyGridUnits.length === 0) {
+            return null;
+        }
+
+        const exact = countyGridUnits.find((item) => {
+            if (!item) {
+                return false;
+            }
+            const candidates = [item.shortName, item.orgName, item.name];
+            return candidates.some((candidate) => normalizeRegionName(candidate) === target);
+        });
+        if (exact) {
+            return exact;
+        }
+
+        return (
+            countyGridUnits.find((item) => {
+                if (!item) {
+                    return false;
+                }
+                const candidates = [item.shortName, item.orgName, item.name];
+                return candidates.some((candidate) => {
+                    const normalized = normalizeRegionName(candidate);
+                    return Boolean(normalized) && (normalized.includes(target) || target.includes(normalized));
+                });
+            }) || null
+        );
+    }
+
+    function highlightTangshanArea() {
+        if (!powerManageGridMap || typeof powerManageGridMap.highLight !== "function") {
+            return;
+        }
+        try {
+            powerManageGridMap.highLight({ orgIds: [defaultOrgId], level: 2 });
+        } catch (error) {
+            console.warn("highlight tangshan area failed", error);
+            try {
+                powerManageGridMap.highLight([defaultOrgId]);
+            } catch (_error) {}
+        }
+    }
+
+    function applyCountyFocus(payload) {
+        pendingCountyFocusPayload = payload ?? null;
+        if (!mapInstance) {
+            return;
+        }
+
+        const countyName = String(payload?.countyName || "").trim();
+        const lngLat = Array.isArray(payload?.lngLat) ? payload.lngLat : null;
+        if (!countyName || countyName === "全部") {
+            highlightTangshanArea();
+            if (typeof mapInstance.setCenter === "function") {
+                mapInstance.setCenter(defaultCenter);
+            }
+            if (typeof mapInstance.setZoom === "function") {
+                mapInstance.setZoom(8);
+            }
+            return;
+        }
+
+        if (powerManageGridMap && countyGridReady) {
+            const matchedUnit = getCountyGridUnitByName(countyName);
+            if (matchedUnit?.orgId) {
+                try {
+                    if (typeof powerManageGridMap.locate === "function") {
+                        powerManageGridMap.locate({ orgId: matchedUnit.orgId });
+                    }
+                    if (typeof powerManageGridMap.highLight === "function") {
+                        powerManageGridMap.highLight({ orgIds: [matchedUnit.orgId], level: 3 });
+                    }
+                    return;
+                } catch (error) {
+                    console.warn("highlight county area failed", error);
+                }
+            }
+        }
+
+        if (lngLat) {
+            if (typeof mapInstance.setCenter === "function") {
+                mapInstance.setCenter(lngLat);
+            }
+            if (typeof mapInstance.setZoom === "function") {
+                mapInstance.setZoom(9);
+            }
+        }
+    }
+
+    function initManageGridModule() {
+        if (!mapInstance || !narimap?.ManageGrid?.PowerManageGridMap) {
+            countyGridReady = true;
+            applyCountyFocus(pendingCountyFocusPayload);
+            return;
+        }
+
+        powerManageGridMap = new narimap.ManageGrid.PowerManageGridMap(mapInstance);
+        try {
+            powerManageGridMap.init(
+                { theme: "light" },
+                {
+                    initOrgIds: [sessionStorage.getItem("PCPU_orgId") || defaultOrgId],
+                    cascade: true,
+                    locate: false
+                }
+            );
+        } catch (error) {
+            console.warn("manage grid init failed", error);
+        }
+
+        if (typeof powerManageGridMap.query !== "function") {
+            countyGridReady = true;
+            applyCountyFocus(pendingCountyFocusPayload);
+            return;
+        }
+
+        powerManageGridMap.query(
+            {
+                orgIds: [sessionStorage.getItem("PCPU_orgId") || defaultOrgId],
+                queryChildren: true,
+                level: 2
+            },
+            function (res) {
+                const list = Array.isArray(res) ? res : [];
+                countyGridUnits = list.filter((item) => item && item.orgId);
+                countyGridReady = true;
+                applyCountyFocus(pendingCountyFocusPayload);
+            },
+            function (error) {
+                console.warn("manage grid query failed", error);
+                countyGridUnits = [];
+                countyGridReady = true;
+                applyCountyFocus(pendingCountyFocusPayload);
+            }
+        );
+    }
+
+    function openCountyPopup(countyStat) {
+        if (!countyStat) {
+            return;
+        }
+        setActiveCountyMarker(countyStat.countyName || "");
+        renderCountyPopups(pendingCountyStats.length ? pendingCountyStats : [countyStat]);
+    }
+
+    function getCountyPopupContent(countyStat) {
+        const countyName = escapeHtml(countyStat?.countyName || "未知区域");
+        const keyUserCount = escapeHtml(String(countyStat?.keyUserCount ?? 0));
+        const ratioText = escapeHtml(countyStat?.ratioText || "0%");
+        return `
+            <div class="county-popup-content">
+                <p class="county-popup-title">${countyName}</p>
+                <p class="county-popup-summary">重要用户户数：${keyUserCount}户 | 占比：${ratioText}</p>
+            </div>
+        `;
+    }
+
+    function createCountyPopup(countyStat) {
+        if (!mapInstance || !countyStat || !Array.isArray(countyStat.lngLat)) {
+            return null;
+        }
+        const PopupCtor = getPopupConstructor();
+        if (!PopupCtor) {
+            return null;
+        }
+
+        let popup = null;
+        try {
+            popup = new PopupCtor({
+                closeButton: false,
+                closeOnClick: false,
+                anchor: "bottom",
+                offset: [0, -18],
+                maxWidth: "420px",
+            });
+        } catch (_error) {
+            popup = new PopupCtor();
+        }
+
+        const content = getCountyPopupContent(countyStat);
+
+        if (typeof popup.setHTML === "function") {
+            popup.setHTML(content);
+        } else if (typeof popup.setHtml === "function") {
+            popup.setHtml(content);
+        }
+        if (typeof popup.setLngLat === "function") {
+            popup.setLngLat(countyStat.lngLat);
+        }
+        if (typeof popup.addTo === "function") {
+            popup.addTo(mapInstance);
+        }
+        return popup;
+    }
+
+    function renderCountyPopups(countyStats = []) {
+        clearCountyPopup();
+        const stats = Array.isArray(countyStats) ? countyStats : [];
+        keyUserCountyPopups = stats
+            .filter((item) => item && Array.isArray(item.lngLat))
+            .map((item) => createCountyPopup(item))
+            .filter(Boolean);
+    }
+
+    function applyCountyMarkers(countyStats = []) {
+        pendingCountyStats = Array.isArray(countyStats) ? countyStats : [];
+        if (!mapInstance) {
+            return;
+        }
+
+        clearCountyMarkers();
+        if (!pendingCountyStats.length) {
+            return;
+        }
+
+        const MarkerCtor = getMarkerConstructor();
+        if (!MarkerCtor) {
+            return;
+        }
+
+        pendingCountyStats.forEach((countyStat) => {
+            if (!countyStat || !Array.isArray(countyStat.lngLat)) {
+                return;
+            }
+
+            const markerElement = createCountyMarkerElement(Boolean(countyStat.active));
+            let marker = null;
+            try {
+                marker = new MarkerCtor({ element: markerElement, anchor: "center" });
+            } catch (_error) {
+                try {
+                    marker = new MarkerCtor(markerElement);
+                } catch (_error2) {
+                    marker = null;
+                }
+            }
+            if (!marker) {
+                return;
+            }
+
+            if (typeof marker.setLngLat === "function") {
+                marker.setLngLat(countyStat.lngLat);
+            }
+            if (typeof marker.addTo === "function") {
+                marker.addTo(mapInstance);
+            }
+
+            if (typeof marker.on === "function") {
+                marker.on("click", () => openCountyPopup(countyStat));
+            } else if (typeof marker.getElement === "function") {
+                const node = marker.getElement();
+                if (node) {
+                    node.addEventListener("click", () => openCountyPopup(countyStat));
+                }
+            } else {
+                markerElement.addEventListener("click", () => openCountyPopup(countyStat));
+            }
+
+            keyUserCountyMarkers.push({
+                marker,
+                countyName: countyStat.countyName || "",
+            });
+            keyUserCountyMarkerNodes.push({
+                node: markerElement,
+                countyName: countyStat.countyName || "",
+            });
+        });
+
+        const activeCounty = pendingCountyStats.find((item) => item?.active);
+        setActiveCountyMarker(activeCounty?.countyName || "");
+        renderCountyPopups(pendingCountyStats);
+    }
+
+    function handleParentMessage(event) {
+        const type = event?.data?.type;
+        if (!type) {
+            return;
+        }
+
+        if (type === keyUserCountyMarkersMessageType) {
+            applyCountyMarkers(event?.data?.payload || []);
+            return;
+        }
+
+        if (type === keyUserCountyMarkersClearMessageType) {
+            pendingCountyStats = [];
+            clearCountyMarkers();
+            return;
+        }
+
+        if (type === mapCountyFocusMessageType) {
+            applyCountyFocus(event?.data?.payload || null);
+            return;
+        }
+
+        if (type === mapOutageFeederLocateMessageType) {
+            locateOutageFeeder(event?.data?.payload || null);
+        }
+    }
+
+    window.addEventListener("message", handleParentMessage);
+
+    function initMap(styleUrl) {
+        mapInstance = new narimap.Map({
+            container: "map",
+            style: styleUrl,
+            zoom: 8,
+            center: defaultCenter,
+            localIdeographFontFamily: "Microsoft YaHei"
+        });
+        initPowerGridLayer(mapInstance);
+        applyTangshanHighlight(mapInstance);
+        initManageGridModule();
+        if (pendingCountyStats.length > 0) {
+            applyCountyMarkers(pendingCountyStats);
+        }
+        applyCountyFocus(pendingCountyFocusPayload);
+        locateOutageFeeder(pendingFeederLocatePayload);
+        window.parent.postMessage({ type: keyUserMapReadyMessageType }, window.location.origin);
+    }
+
+    function applyTangshanHighlight(map) {
+        let highlighted = false;
+        const renderHighlight = function () {
+            if (highlighted || !map || typeof map.addSource !== "function" || typeof map.addLayer !== "function") {
+                return;
+            }
+            highlighted = true;
+            try {
+                if (map.getLayer && map.getLayer(tangshanHighlightLineLayerId)) {
+                    map.removeLayer(tangshanHighlightLineLayerId);
+                }
+                if (map.getLayer && map.getLayer(tangshanHighlightFillLayerId)) {
+                    map.removeLayer(tangshanHighlightFillLayerId);
+                }
+                if (map.getSource && map.getSource(tangshanHighlightSourceId)) {
+                    map.removeSource(tangshanHighlightSourceId);
+                }
+
+                map.addSource(tangshanHighlightSourceId, {
+                    type: "geojson",
+                    data: tangshanBoundaryGeoJson
+                });
+
+                map.addLayer({
+                    id: tangshanHighlightFillLayerId,
+                    type: "fill",
+                    source: tangshanHighlightSourceId,
+                    paint: {
+                        "fill-color": "#1A79DD",
+                        "fill-opacity": 0.25
+                    }
+                });
+
+                map.addLayer({
+                    id: tangshanHighlightLineLayerId,
+                    type: "line",
+                    source: tangshanHighlightSourceId,
+                    paint: {
+                        "line-color": "#5BC6FF",
+                        "line-width": 2.5,
+                        "line-opacity": 0.95
+                    }
+                });
+            } catch (error) {
+                console.error("Tangshan highlight render error", error);
+            }
+        };
+
+        if (typeof map.once === "function") {
+            map.once("style.load", renderHighlight);
+            map.once("load", renderHighlight);
+            return;
+        }
+        renderHighlight();
+    }
+
+    function initPowerGridLayer(map) {
+        const renderPowerGrid = function () {
+            if (psrMapInstance || !map || !narimap?.PSRMap) {
+                return;
+            }
+            try {
+                psrMapInstance = new narimap.PSRMap(map);
+                psrMapInstance.addPSR([900, 901, 902, 903]);
+                locateOutageFeeder(pendingFeederLocatePayload);
+            } catch (error) {
+                console.error("Power grid layer render error", error);
+            }
+        };
+
+        if (typeof map.once === "function") {
+            map.once("style.load", renderPowerGrid);
+            map.once("load", renderPowerGrid);
+            return;
+        }
+        renderPowerGrid();
+    }
+
+    function start() {
+        narimap.Require(["Marker", "Popup", "ManageGrid", "PSRMap"], function () {
+            if (narimap.Config.examples.notlogin) {
+                initMap(narimap.Config.styles.sjDark);
+                return;
+            }
+
+            narimap.SGAuth.login()
+                .then(function () {
+                    initMap(narimap.Config.styles.sjDark);
+                })
+                .catch(function (err) {
+                    console.error("SGAuth login error", err);
+                    alert("地图登录失败，请检查账户权限或网络。");
+                });
+        });
+    }
+
+    start();
+</script>
+</body>
+</html>
