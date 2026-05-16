@@ -330,7 +330,7 @@ const hoveredNaturePieItem = computed(() =>
           <p><span>停电性质：</span>{{ props.selectedKeyUserDetail.outageNature }}</p>
           <p><span>设备名称：</span>{{ props.selectedKeyUserDetail.equipmentName }}</p>
           <p><span>台区名称：</span>{{ props.selectedKeyUserDetail.tgName }}</p>
-          <p><span>表箱标识：</span>{{ props.selectedKeyUserDetail.meterId }}</p>
+          <p><span>行业名称：</span>{{ props.selectedKeyUserDetail.tradeName || '-' }}</p>
         </div>
       </article>
     </div>

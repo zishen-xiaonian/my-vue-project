@@ -2,9 +2,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   queryCountyTrend,
+  queryCountyOutageFreq,
   queryCountyDetailStats,
   queryCountyList,
   queryCountyStats,
+  queryCountyUserDetail,
   queryCountyUserList,
 } from './api/outage'
 import UserTagModuleCard from './components/UserTagModuleCard.vue'
@@ -75,6 +77,16 @@ const countyTrendData = ref({
   sensitiveSeries: [],
   importantSeries: [],
 })
+const countyOutageFreqData = ref({
+  keyUsers: {
+    total: 0,
+    distribution: [],
+  },
+  sensitiveUsers: {
+    total: 0,
+    distribution: [],
+  },
+})
 
 const selectedRegion = ref('全部')
 const selectedEventId = ref('')
@@ -129,7 +141,7 @@ const keyUserDetailCurrentPage = ref(1)
 const keyUserDetailSearchInput = ref('')
 const keyUserDetailSearchKeyword = ref('')
 const keyUserDetailSelectedFilterCategory = ref('level')
-const keyUserDetailSelectedFilterValue = ref('important')
+const keyUserDetailSelectedFilterValue = ref('key')
 const keyUserDetailJumpPageInput = ref('')
 const keyUserDetailStatsData = ref({
   summary: null,
@@ -140,8 +152,13 @@ const keyUserDetailStatsData = ref({
 const keyUserDetailRows = ref([])
 const keyUserDetailTotal = ref(0)
 let keyUserDetailListRequestId = 0
+let keyUserDetailModalRequestId = 0
 const KEY_USER_DETAIL_ROWS_PER_PAGE = 9
 const KEY_USER_DETAIL_MAX_PAGE_BUTTONS = 9
+const countyUserListSnapshotDate = String(import.meta.env.VITE_COUNTY_USER_LIST_SNAPSHOT_DATE || '').trim()
+const countyUserListSnapshotStartDate = String(import.meta.env.VITE_COUNTY_USER_LIST_SNAPSHOT_START_DATE || '').trim()
+const countyUserListSnapshotEndDate = String(import.meta.env.VITE_COUNTY_USER_LIST_SNAPSHOT_END_DATE || '').trim()
+const countyUserListOutageCount = String(import.meta.env.VITE_COUNTY_USER_LIST_OUTAGE_COUNT || '').trim()
 const setOutageDetailGridBodyRef = (el) => {
   outageDetailGridBodyRef.value = el
 }
@@ -203,6 +220,20 @@ const safeNumber = (value) => {
 
   return 0
 }
+
+const toBooleanFlag = (value) => {
+  if (typeof value === 'boolean') {
+    return value
+  }
+  if (typeof value === 'number') {
+    return value === 1
+  }
+  const normalized = String(value || '').trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'y'
+}
+
+const countyUserListLevels = new Set(['all', 'key', 'sensitive', 'key_sensitive'])
+const countyUserListOutageCounts = new Set(['1', '2', '3+'])
 
 const normalizeCountyName = (countyName = '') => String(countyName || '').replace('供电公司', '').trim()
 const toCountyDisplayName = (countyName = '') => String(countyName || '').trim()
@@ -757,6 +788,62 @@ const buildDefaultCountyTrendData = (beginTime, endTime) => ({
   importantSeries: Array.from({ length: USER_TIME_TREND_POINT_COUNT }, () => 0),
 })
 
+const buildDefaultCountyOutageFreqData = () => ({
+  keyUsers: {
+    total: 0,
+    distribution: [
+      { label: '停电1次', count: 0, percentage: 0 },
+      { label: '停电2次', count: 0, percentage: 0 },
+      { label: '停电3次及以上', count: 0, percentage: 0 },
+    ],
+  },
+  sensitiveUsers: {
+    total: 0,
+    distribution: [
+      { label: '停电1次', count: 0, percentage: 0 },
+      { label: '停电2次', count: 0, percentage: 0 },
+      { label: '停电3次及以上', count: 0, percentage: 0 },
+    ],
+  },
+})
+
+const mapCountyOutageFreqGroup = (group, fallbackLabels = []) => {
+  const safeTotal = Math.max(safeNumber(group?.total), 0)
+  const list = Array.isArray(group?.distribution) ? group.distribution : []
+  const fallback = fallbackLabels.length > 0
+    ? fallbackLabels
+    : ['停电1次', '停电2次', '停电3次及以上']
+  const normalized = fallback.map((label, index) => {
+    const item = list[index] || {}
+    const count = Math.max(safeNumber(item?.count), 0)
+    const percentage = item?.percentage === undefined || item?.percentage === null
+      ? (safeTotal > 0 ? Number(((count / safeTotal) * 100).toFixed(1)) : 0)
+      : Math.max(safeNumber(item?.percentage), 0)
+    return {
+      label: String(item?.label || label || '').trim() || label,
+      count,
+      percentage: Number(percentage.toFixed(1)),
+    }
+  })
+
+  return {
+    total: safeTotal,
+    distribution: normalized,
+  }
+}
+
+const mapCountyOutageFreqData = (response) => {
+  const data = response?.data || {}
+  const defaults = buildDefaultCountyOutageFreqData()
+  return {
+    keyUsers: mapCountyOutageFreqGroup(data?.keyUsers, defaults.keyUsers.distribution.map((item) => item.label)),
+    sensitiveUsers: mapCountyOutageFreqGroup(
+      data?.sensitiveUsers,
+      defaults.sensitiveUsers.distribution.map((item) => item.label),
+    ),
+  }
+}
+
 const mapCountyTrendData = (response, beginTime, endTime) => {
   const data = response?.data
   const points =
@@ -812,6 +899,41 @@ const loadCountyTrendData = async ({ beginTime, endTime }) => {
   return countyTrendData.value
 }
 
+const loadCountyOutageFreqData = async ({ beginTime, endTime }) => {
+  if (!beginTime || !endTime) {
+    countyOutageFreqData.value = buildDefaultCountyOutageFreqData()
+    return countyOutageFreqData.value
+  }
+
+  const payload = {
+    beginTime,
+    endTime,
+  }
+  const countyId = getCountyIdByRegionName(selectedRegion.value)
+  if (countyId) {
+    payload.countyId = countyId
+  }
+
+  try {
+    const response = await queryCountyOutageFreq(payload)
+    countyOutageFreqData.value = mapCountyOutageFreqData(response)
+  } catch {
+    countyOutageFreqData.value = buildDefaultCountyOutageFreqData()
+  }
+
+  return countyOutageFreqData.value
+}
+
+const handleOpenTimeTrendDetailPage = () => {
+  const beginTime = toBackendDateTime(queryStartTime.value)
+  const endTime = toBackendDateTime(queryEndTime.value)
+  countyOutageFreqData.value = buildDefaultCountyOutageFreqData()
+  void loadCountyOutageFreqData({
+    beginTime,
+    endTime,
+  })
+}
+
 const loadDashboardData = async (customRange = null) => {
   loading.value = true
   dataError.value = ''
@@ -854,8 +976,8 @@ const loadDashboardData = async (customRange = null) => {
       loadTagStatsOverview(basePayload),
       queryOutageEventsByPages(basePayload),
       queryOutageUsersByPages(basePayload),
+      loadCountyTrendData(basePayload),
     ])
-    await loadCountyTrendData(basePayload)
 
     outageIndexRecords.value = []
     tagStatsOverview.value = tagStatsResponse
@@ -881,6 +1003,7 @@ const loadDashboardData = async (customRange = null) => {
     faultSummaryData.value = null
     outageScopeSummaryData.value = null
     countyTrendData.value = buildDefaultCountyTrendData(beginTime, endTime)
+    countyOutageFreqData.value = buildDefaultCountyOutageFreqData()
     dataError.value = `后端接口调用失败：${error?.message || '未知错误'}`
   } finally {
     loading.value = false
@@ -1825,10 +1948,10 @@ const outageRangeChains = computed(() => {
 
 const outageNatureText = (value) => {
   const plain = String(value || '').trim()
-  if (plain === '01') {
+  if (plain === '01' || plain === '1') {
     return '计划停电'
   }
-  if (plain === '02') {
+  if (plain === '02' || plain === '2') {
     return '故障停电'
   }
   if (plain.includes('计划')) {
@@ -1901,6 +2024,22 @@ const buildKeyUserDetailBasePayload = () => {
   if (countyId) {
     payload.countyId = countyId
   }
+
+  if (countyUserListSnapshotDate) {
+    payload.snapshotDate = countyUserListSnapshotDate
+  } else {
+    if (countyUserListSnapshotStartDate) {
+      payload.snapshotStartDate = countyUserListSnapshotStartDate
+    }
+    if (countyUserListSnapshotEndDate) {
+      payload.snapshotEndDate = countyUserListSnapshotEndDate
+    }
+  }
+
+  if (countyUserListOutageCounts.has(countyUserListOutageCount)) {
+    payload.outageCount = countyUserListOutageCount
+  }
+
   return payload
 }
 
@@ -1912,6 +2051,19 @@ const mapKeyUserDetailStats = (response) => {
     keyUserByTrade: Array.isArray(data?.keyUserByTrade) ? data.keyUserByTrade : [],
     sensitiveUserByTrade: Array.isArray(data?.sensitiveUserByTrade) ? data.sensitiveUserByTrade : [],
     outageNatureDistribution: Array.isArray(data?.outageNatureDistribution) ? data.outageNatureDistribution : [],
+  }
+}
+
+const mapCountyUserListResult = (response) => {
+  const data = response?.data && typeof response.data === 'object' && !Array.isArray(response.data)
+    ? response.data
+    : {}
+  const list = Array.isArray(data?.list) ? data.list : []
+  return {
+    list,
+    total: Math.max(safeNumber(data?.total), 0),
+    page: Math.max(safeNumber(data?.page), 1),
+    perPage: Math.max(safeNumber(data?.perPage), 0),
   }
 }
 
@@ -1941,22 +2093,118 @@ const loadKeyUserDetailStats = async () => {
 }
 
 const mapKeyUserDetailRow = (item, index) => {
-  const isSensitive = item?.isSensitiveUser === true
-  const isKey = item?.isKeyUser === true
+  const isSensitive = toBooleanFlag(
+    readFieldValue(item, ['isSensitiveUser', 'is_sensitive_user', 'sensitiveUser', 'sensitive_user']),
+  )
+  const isKey = toBooleanFlag(
+    readFieldValue(item, ['isKeyUser', 'is_key_user', 'keyUser', 'key_user']),
+  )
+  const consNo = String(readFieldValue(item, ['consNo', 'cons_no', 'userNo', 'user_no']) || '').trim() || '-'
+  const consName = String(readFieldValue(item, ['consName', 'cons_name', 'userName', 'user_name']) || '').trim() || '-'
+  const countyName = toCountyDisplayName(
+    readFieldValue(item, ['countyName', 'county_name', 'rdtCountyName', 'rdt_county_name']) || '-',
+  ) || '-'
+  const tradeName = String(readFieldValue(item, ['tradeName', 'trade_name', 'industryName', 'industry_name']) || '').trim()
+  const outageNumber = String(extractOutageNumberParam(item) || '').trim()
+  const outageNature = readFieldValue(item, ['outageNature', 'outage_nature', 'outageType', 'outage_type'])
+  const keyUserLevel = isSensitive && isKey ? '重点+敏感' : (isSensitive ? '敏感' : (isKey ? '重点' : '-'))
   return {
-    id: `${String(item?.consNo || '').trim()}-${index}`,
-    consNo: String(item?.consNo || '').trim() || '-',
-    consName: String(item?.consName || '').trim() || '-',
-    countyName: toCountyDisplayName(item?.countyName || '-') || '-',
-    tradeName: String(item?.tradeName || '').trim() || '未知行业',
-    keyUserLevel: isSensitive ? '敏感' : (isKey ? '重点' : '-'),
+    id: `${consNo}-${index}`,
+    consNo,
+    consName,
+    countyName,
+    tradeName: tradeName || '未知行业',
+    keyUserLevel,
     isSensitive,
     consAddr: '-',
-    outageNature: outageNatureText(item?.outageNature),
+    outageNature: outageNatureText(outageNature),
     equipmentName: '-',
     tgName: '-',
     meterId: '-',
+    outageNumber,
   }
+}
+
+const resolveCountyUserOutageNumber = (record) => {
+  const outageNumber = String(
+    readFieldValue(record, [
+      'outageNumber',
+      'outage_number',
+      'outageNo',
+      'outage_no',
+      'outageNum',
+      'outage_num',
+      'eventNo',
+      'event_no',
+      'eventNumber',
+      'event_number',
+      'outageId',
+      'outage_id',
+    ]) || '',
+  ).trim()
+
+  if (outageNumber) {
+    return outageNumber
+  }
+
+  return String(extractOutageNumberParam(record) || '').trim()
+}
+
+const matchKeyUserRowOutageNumber = (item) => {
+  const directOutageNumber = resolveCountyUserOutageNumber(item)
+  if (directOutageNumber) {
+    return directOutageNumber
+  }
+
+  const consNo = String(item?.consNo || '').trim()
+  if (!consNo) {
+    return ''
+  }
+
+  const targetCounty = normalizeCountyName(item?.countyName || '')
+  const targetTradeName = String(item?.tradeName || '').trim()
+  const targetNatureText = outageNatureText(item?.outageNature || '')
+  let fallbackOutageNumber = ''
+
+  const sourceCandidates = [
+    ...outageUsersBySelectedCounty.value,
+    ...tagAndKeyUserSourceUsers.value,
+    ...outageUsers.value,
+  ]
+
+  for (const sourceUser of sourceCandidates) {
+    const record = normalizeUserRecord(sourceUser)
+    const recordConsNo = String(readFieldValue(record, ['consNo', 'cons_no', 'userNo', 'userId']) || '').trim()
+    if (recordConsNo !== consNo) {
+      continue
+    }
+
+    const recordOutageNumber = resolveCountyUserOutageNumber(record)
+    if (!recordOutageNumber) {
+      continue
+    }
+    if (!fallbackOutageNumber) {
+      fallbackOutageNumber = recordOutageNumber
+    }
+
+    const recordCounty = normalizeCountyName(
+      readFieldValue(record, ['rdtCountyName', 'rdt_county_name', 'countyName', 'county_name']),
+    )
+    const recordTradeName = String(readFieldValue(record, ['tradeName', 'trade_name', 'industryName']) || '').trim()
+    const recordNatureText = outageNatureText(
+      readFieldValue(record, ['outageNature', 'outage_nature', 'outageTypeName', 'outage_type_name']),
+    )
+
+    const countyMatched = !targetCounty || !recordCounty || recordCounty === targetCounty
+    const tradeMatched = !targetTradeName || !recordTradeName || recordTradeName === targetTradeName
+    const natureMatched = targetNatureText === '其他' || recordNatureText === '其他' || recordNatureText === targetNatureText
+
+    if (countyMatched && tradeMatched && natureMatched) {
+      return recordOutageNumber
+    }
+  }
+
+  return fallbackOutageNumber
 }
 
 const loadKeyUserDetailRows = async () => {
@@ -1973,10 +2221,13 @@ const loadKeyUserDetailRows = async () => {
   if (keyword) {
     payload.keyword = keyword
   }
-  if (keyUserDetailSelectedFilterValue.value === 'important') {
+  const selectedFilterValue = String(keyUserDetailSelectedFilterValue.value || '').trim()
+  if (selectedFilterValue === 'important') {
     payload.userLevel = 'key'
-  } else if (keyUserDetailSelectedFilterValue.value === 'sensitive') {
-    payload.userLevel = 'sensitive'
+  } else if (countyUserListLevels.has(selectedFilterValue)) {
+    payload.userLevel = selectedFilterValue
+  } else if (countyUserListOutageCounts.has(selectedFilterValue)) {
+    payload.outageCount = selectedFilterValue
   }
 
   const requestId = keyUserDetailListRequestId + 1
@@ -1988,12 +2239,12 @@ const loadKeyUserDetailRows = async () => {
       return
     }
 
-    const data = response?.data || {}
-    const list = Array.isArray(data?.list) ? data.list : []
-    keyUserDetailRows.value = list.map((item, index) => mapKeyUserDetailRow(item, index))
-    keyUserDetailTotal.value = Math.max(safeNumber(data?.total), 0)
+    const result = mapCountyUserListResult(response)
+    keyUserDetailRows.value = result.list.map((item, index) => mapKeyUserDetailRow(item, index))
+    keyUserDetailTotal.value = result.total
 
-    const totalPages = Math.max(Math.ceil(keyUserDetailTotal.value / KEY_USER_DETAIL_ROWS_PER_PAGE), 1)
+    const perPage = result.perPage > 0 ? result.perPage : KEY_USER_DETAIL_ROWS_PER_PAGE
+    const totalPages = Math.max(Math.ceil(keyUserDetailTotal.value / perPage), 1)
     if (keyUserDetailCurrentPage.value > totalPages) {
       keyUserDetailCurrentPage.value = totalPages
     }
@@ -2114,7 +2365,7 @@ const keyUserFilterCategoryOptions = computed(() => [
 ])
 
 const keyUserFilterValueOptions = computed(() => [
-  { value: 'important', label: '重要用户' },
+  { value: 'key', label: '重点用户' },
   { value: 'sensitive', label: '敏感用户' },
 ])
 
@@ -2593,7 +2844,7 @@ const openKeyUserDetailPage = async () => {
   keyUserDetailSearchInput.value = ''
   keyUserDetailSearchKeyword.value = ''
   keyUserDetailSelectedFilterCategory.value = 'level'
-  keyUserDetailSelectedFilterValue.value = 'important'
+  keyUserDetailSelectedFilterValue.value = 'key'
   keyUserDetailJumpPageInput.value = ''
   keyUserDetailCurrentPage.value = 1
   selectedKeyUserCounty.value = ''
@@ -2620,9 +2871,51 @@ const closeKeyUserDetailPage = () => {
   syncMapMarkers()
 }
 
-const openKeyUserDetailModal = (item) => {
+const openKeyUserDetailModal = async (item) => {
   selectedKeyUserDetail.value = item
   keyUserDetailModalVisible.value = true
+
+  const consNo = String(item?.consNo || '').trim()
+  const outageNumber = matchKeyUserRowOutageNumber(item)
+  if (!consNo || !outageNumber) {
+    console.warn('[county/user-detail] skip request: missing required params', {
+      consNo,
+      outageNumber,
+      row: item,
+    })
+    return
+  }
+
+  const requestId = keyUserDetailModalRequestId + 1
+  keyUserDetailModalRequestId = requestId
+
+  try {
+    const response = await queryCountyUserDetail({
+      consNo,
+      outageNumber,
+    })
+
+    if (requestId !== keyUserDetailModalRequestId) {
+      return
+    }
+    if (!keyUserDetailModalVisible.value || !selectedKeyUserDetail.value) {
+      return
+    }
+
+    const detail = response?.data || {}
+    selectedKeyUserDetail.value = {
+      ...selectedKeyUserDetail.value,
+      consNo: String(detail?.consNo || selectedKeyUserDetail.value.consNo || '-').trim() || '-',
+      consName: String(detail?.consName || selectedKeyUserDetail.value.consName || '-').trim() || '-',
+      consAddr: String(detail?.consAddr || selectedKeyUserDetail.value.consAddr || '-').trim() || '-',
+      outageNature: outageNatureText(detail?.outageNature || selectedKeyUserDetail.value.outageNature || ''),
+      equipmentName: String(detail?.equipmentName || selectedKeyUserDetail.value.equipmentName || '-').trim() || '-',
+      tgName: String(detail?.tgName || selectedKeyUserDetail.value.tgName || '-').trim() || '-',
+      tradeName: String(detail?.tradeName || selectedKeyUserDetail.value.tradeName || '').trim(),
+    }
+  } catch {
+    // Keep table row snapshot as fallback if detail api fails.
+  }
 }
 
 const applyKeyUserDetailSearch = () => {
@@ -3531,11 +3824,13 @@ onBeforeUnmount(() => {
               <KeyUserTimeTrendCard
                 :start-time="queryStartTime"
                 :end-time="queryEndTime"
+                :outage-freq-data="countyOutageFreqData"
                 :users="tagAndKeyUserSourceUsers"
                 :time-segments="keyUserTimeTrend.labels"
                 :time-sub-segments="keyUserTimeTrend.timeLabels"
                 :sensitive-series="keyUserTimeTrend.sensitiveSeries"
                 :important-series="keyUserTimeTrend.importantSeries"
+                @open-detail-page="handleOpenTimeTrendDetailPage"
               />
 
               <KeyUserCountBarCard

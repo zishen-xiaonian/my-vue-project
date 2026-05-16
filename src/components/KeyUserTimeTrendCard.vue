@@ -10,6 +10,10 @@ const props = defineProps({
     type: [String, Date],
     default: '',
   },
+  outageFreqData: {
+    type: Object,
+    default: null,
+  },
   users: {
     type: Array,
     default: () => [],
@@ -43,6 +47,7 @@ const props = defineProps({
     default: '重要用户',
   },
 })
+const emit = defineEmits(['open-detail-page'])
 
 const DEFAULT_SEGMENT_COUNT = 5
 const DEFAULT_POINT_COUNT = DEFAULT_SEGMENT_COUNT + 1
@@ -543,6 +548,75 @@ const buildOutagePieSummary = (rows = []) => {
   })
 }
 
+const toNonNegativeNumber = (value) => {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return null
+  }
+  return numeric
+}
+
+const resolveOutageBucketKey = (label, index) => {
+  const text = String(label || '').trim()
+  if (text.includes('3') || text.includes('+') || text.includes('以上')) {
+    return '3+'
+  }
+  if (text.includes('2')) {
+    return '2'
+  }
+  if (text.includes('1')) {
+    return '1'
+  }
+
+  if (index === 0) {
+    return '1'
+  }
+  if (index === 1) {
+    return '2'
+  }
+  return '3+'
+}
+
+const buildOutagePieSummaryFromApi = (group) => {
+  const distribution = Array.isArray(group?.distribution) ? group.distribution : null
+  if (!distribution) {
+    return null
+  }
+
+  const total = toNonNegativeNumber(group?.total) ?? 0
+  const countMap = new Map(DETAIL_OUTAGE_BUCKETS.map((item) => [item.key, 0]))
+  const rateMap = new Map()
+
+  distribution.forEach((item, index) => {
+    const key = resolveOutageBucketKey(item?.label, index)
+    if (!countMap.has(key)) {
+      return
+    }
+    const count = toNonNegativeNumber(item?.count) ?? 0
+    countMap.set(key, count)
+    const percentage = toNonNegativeNumber(item?.percentage)
+    if (percentage !== null) {
+      rateMap.set(key, percentage)
+    }
+  })
+
+  return DETAIL_OUTAGE_BUCKETS.map((bucket) => {
+    const count = countMap.get(bucket.key) ?? 0
+    const rawRate = rateMap.has(bucket.key)
+      ? rateMap.get(bucket.key)
+      : (total > 0 ? (count / total) * 100 : 0)
+    const rate = Number(rawRate.toFixed(1))
+    return {
+      key: bucket.key,
+      label: bucket.label,
+      color: bucket.color,
+      count,
+      rate,
+      rateText: `${rate.toFixed(1)}%`,
+    }
+  })
+}
+
 const buildOutagePieBackground = (items = []) => {
   if (!Array.isArray(items) || items.length === 0) {
     return 'conic-gradient(rgba(124, 166, 201, 0.24) 0% 100%)'
@@ -563,10 +637,30 @@ const buildOutagePieBackground = (items = []) => {
   return `conic-gradient(${segments.join(', ')})`
 }
 
-const importantOutagePieSummary = computed(() => buildOutagePieSummary(importantUserOutageRows.value))
-const sensitiveOutagePieSummary = computed(() => buildOutagePieSummary(sensitiveUserOutageRows.value))
+const importantOutagePieSummary = computed(() => {
+  const apiSummary = buildOutagePieSummaryFromApi(props.outageFreqData?.keyUsers)
+  return apiSummary || buildOutagePieSummary(importantUserOutageRows.value)
+})
+const sensitiveOutagePieSummary = computed(() => {
+  const apiSummary = buildOutagePieSummaryFromApi(props.outageFreqData?.sensitiveUsers)
+  return apiSummary || buildOutagePieSummary(sensitiveUserOutageRows.value)
+})
 const importantOutagePieBackground = computed(() => buildOutagePieBackground(importantOutagePieSummary.value))
 const sensitiveOutagePieBackground = computed(() => buildOutagePieBackground(sensitiveOutagePieSummary.value))
+const importantOutageTotal = computed(() => {
+  const apiTotal = toNonNegativeNumber(props.outageFreqData?.keyUsers?.total)
+  if (apiTotal !== null) {
+    return Math.round(apiTotal)
+  }
+  return importantUserOutageRows.value.length
+})
+const sensitiveOutageTotal = computed(() => {
+  const apiTotal = toNonNegativeNumber(props.outageFreqData?.sensitiveUsers?.total)
+  if (apiTotal !== null) {
+    return Math.round(apiTotal)
+  }
+  return sensitiveUserOutageRows.value.length
+})
 
 const filteredImportantUserOutageRows = computed(() => {
   const keyword = detailSearchKeyword.value.trim().toLowerCase()
@@ -627,6 +721,7 @@ const detailPageButtons = computed(() => {
 
 const openDetailPage = () => {
   detailPageVisible.value = true
+  emit('open-detail-page')
 }
 
 const closeDetailPage = () => {
@@ -805,7 +900,7 @@ watch(
           <div class="trend-detail-pie-content">
             <div class="tag-pie trend-detail-tag-pie" :style="{ background: importantOutagePieBackground }">
               <div class="tag-pie-center">
-                <strong>{{ importantUserOutageRows.length }}</strong>
+                <strong>{{ importantOutageTotal }}</strong>
                 <span>重点用户</span>
               </div>
             </div>
@@ -824,7 +919,7 @@ watch(
           <div class="trend-detail-pie-content">
             <div class="tag-pie trend-detail-tag-pie" :style="{ background: sensitiveOutagePieBackground }">
               <div class="tag-pie-center">
-                <strong>{{ sensitiveUserOutageRows.length }}</strong>
+                <strong>{{ sensitiveOutageTotal }}</strong>
                 <span>敏感用户</span>
               </div>
             </div>

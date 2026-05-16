@@ -11,8 +11,10 @@ const DEFAULT_STATS_TIMEOUT = 20000
 const COUNTY_LIST_API = import.meta.env.VITE_COUNTY_LIST_API || '/api/county/list'
 const COUNTY_STATS_API = import.meta.env.VITE_COUNTY_STATS_API || '/api/county/stats'
 const COUNTY_TREND_API = import.meta.env.VITE_COUNTY_TREND_API || '/api/county/trend'
+const COUNTY_OUTAGE_FREQ_API = import.meta.env.VITE_COUNTY_OUTAGE_FREQ_API || '/api/county/outage-freq'
 const COUNTY_DETAIL_STATS_API = import.meta.env.VITE_COUNTY_DETAIL_STATS_API || '/api/county/detail-stats'
 const COUNTY_USER_LIST_API = import.meta.env.VITE_COUNTY_USER_LIST_API || '/api/county/user-list'
+const COUNTY_USER_DETAIL_API = import.meta.env.VITE_COUNTY_USER_DETAIL_API || '/api/county/user-detail'
 
 const TIME_TREND_SERIES_API = import.meta.env.VITE_TIME_TREND_SERIES_API || '/api/time-trend/series'
 const TIME_TREND_USER_DETAIL_API = import.meta.env.VITE_TIME_TREND_USER_DETAIL_API || '/api/time-trend/user-detail'
@@ -52,6 +54,11 @@ export const queryCountyTrend = (params) =>
     timeout: DEFAULT_STATS_TIMEOUT,
   })
 
+export const queryCountyOutageFreq = (params) =>
+  postJson(COUNTY_OUTAGE_FREQ_API, params, {
+    timeout: DEFAULT_STATS_TIMEOUT,
+  })
+
 export const queryCountyDetailStats = (params) =>
   postJson(COUNTY_DETAIL_STATS_API, params, {
     timeout: DEFAULT_STATS_TIMEOUT,
@@ -59,6 +66,11 @@ export const queryCountyDetailStats = (params) =>
 
 export const queryCountyUserList = (params) =>
   postJson(COUNTY_USER_LIST_API, params, {
+    timeout: DEFAULT_STATS_TIMEOUT,
+  })
+
+export const queryCountyUserDetail = (params) =>
+  postJson(COUNTY_USER_DETAIL_API, params, {
     timeout: DEFAULT_STATS_TIMEOUT,
   })
 
