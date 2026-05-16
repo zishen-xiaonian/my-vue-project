@@ -1,5 +1,6 @@
 ﻿<script setup>
 import { computed, ref, watch } from 'vue'
+import { queryCountyUserOutageDetail, queryCountyUserOutageStats } from '../api/outage'
 
 const props = defineProps({
   startTime: {
@@ -8,6 +9,10 @@ const props = defineProps({
   },
   endTime: {
     type: [String, Date],
+    default: '',
+  },
+  countyId: {
+    type: String,
     default: '',
   },
   outageFreqData: {
@@ -71,6 +76,15 @@ const detailCurrentPage = ref(1)
 const detailJumpPageInput = ref('')
 const detailModalVisible = ref(false)
 const selectedUserDetail = ref(null)
+const detailModalLoading = ref(false)
+const detailModalError = ref('')
+const detailModalRequestId = ref(0)
+const detailTableRows = ref([])
+const detailTableTotal = ref(0)
+const detailTablePerPage = ref(DETAIL_PAGE_SIZE)
+const detailTableLoading = ref(false)
+const detailTableError = ref('')
+const detailTableRequestId = ref(0)
 
 const toDate = (value) => {
   if (value instanceof Date) {
@@ -144,6 +158,20 @@ const formatDateTimeLabel = (date) => {
   const minute = String(date.getMinutes()).padStart(2, '0')
   const second = String(date.getSeconds()).padStart(2, '0')
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+}
+
+const toBackendDateTime = (value) => {
+  if (value instanceof Date) {
+    return formatDateTimeLabel(value)
+  }
+
+  const text = String(value ?? '').trim()
+  if (!text) {
+    return ''
+  }
+
+  const normalized = text.replace('T', ' ')
+  return normalized.length === 16 ? `${normalized}:00` : normalized
 }
 
 const toCountArray = (values, length) =>
@@ -662,37 +690,153 @@ const sensitiveOutageTotal = computed(() => {
   return sensitiveUserOutageRows.value.length
 })
 
-const filteredImportantUserOutageRows = computed(() => {
-  const keyword = detailSearchKeyword.value.trim().toLowerCase()
-  const countFilter = detailOutageCountFilter.value
+const mapDetailTableRow = (record, index) => {
+  const consNo = toText(readFieldValue(record, ['consNo', 'cons_no', 'userNo', 'userId', 'consumerNo']))
+  const consName = toText(readFieldValue(record, ['consName', 'cons_name', 'name', 'userName', 'orgName']))
+  const outageCount = Math.max(Number(readFieldValue(record, ['outageCount', 'outage_count'])) || 0, 0)
+  const outagePeriodsText = toText(
+    readFieldValue(record, [
+      'outagePeriodsText',
+      'outagePeriodText',
+      'outagePeriods',
+      'outageTimePeriods',
+      'outagePeriod',
+      'periodText',
+    ]),
+    '-',
+  )
+  const outageEvents = Array.isArray(record?.outageEvents) ? record.outageEvents : []
+  const id = `${consNo}-${consName}-${detailCurrentPage.value}-${index + 1}`
 
-  return importantUserOutageRows.value.filter((item) => {
-    const consNo = String(item.consNo || '').toLowerCase()
-    const consName = String(item.consName || '').toLowerCase()
-    const matchedKeyword = !keyword || consNo.includes(keyword) || consName.includes(keyword)
+  return {
+    id,
+    consNo,
+    consName,
+    userLevel: toText(readFieldValue(record, ['userLevel', 'keyUserLevel', 'label', 'level'])),
+    countyName: toText(readFieldValue(record, ['countyName', 'county_name', 'rdtCountyName', 'rdt_county_name'])),
+    tradeName: toText(readFieldValue(record, ['tradeName', 'trade_name', 'tradeTypeName', 'industryName'])),
+    consAddr: toText(readFieldValue(record, ['consAddr', 'cons_addr', 'consAddress', 'address'])),
+    consTypeName: toText(readFieldValue(record, ['consTypeName', 'cons_type_name', 'consType'])),
+    outageCount,
+    outagePeriodsText,
+    outageEvents,
+  }
+}
 
-    let matchedCount = true
-    if (countFilter === '1') {
-      matchedCount = item.outageCount === 1
-    } else if (countFilter === '2') {
-      matchedCount = item.outageCount === 2
-    } else if (countFilter === '3+') {
-      matchedCount = item.outageCount >= 3
+const mapDetailOutageEvents = (outages) =>
+  (Array.isArray(outages) ? outages : []).map((item, index) => {
+    const beginTime = toText(readFieldValue(item, ['beginTime', 'begin_time', 'outageBeginTime']), '-')
+    const endTimeRaw = toText(readFieldValue(item, ['endTime', 'end_time', 'outageEndTime']), '')
+    const endTime = endTimeRaw || '未复电'
+    return {
+      eventKey: `${beginTime}|${endTime}|${index + 1}`,
+      periodText: `${beginTime} ~ ${endTime}`,
+      beginTime,
+      endTime,
+    }
+  })
+
+const mapUserOutageDetailData = (detailData, fallbackRow = null) => {
+  const outages = mapDetailOutageEvents(detailData?.outages)
+  const fallbackOutageCount = Number(fallbackRow?.outageCount) || 0
+  const resolvedOutageCount = Number(readFieldValue(detailData, ['outageCount', 'outage_count']))
+
+  return {
+    id: fallbackRow?.id || `user-detail-${Date.now()}`,
+    consNo: toText(readFieldValue(detailData, ['consNo', 'cons_no']), fallbackRow?.consNo || '-'),
+    consName: toText(readFieldValue(detailData, ['consName', 'cons_name']), fallbackRow?.consName || '-'),
+    userLevel: toText(fallbackRow?.userLevel || ''),
+    outageCount: Number.isFinite(resolvedOutageCount) && resolvedOutageCount >= 0
+      ? resolvedOutageCount
+      : Math.max(fallbackOutageCount, outages.length),
+    countyName: toText(readFieldValue(detailData, ['countyName', 'county_name']), fallbackRow?.countyName || '-'),
+    tradeName: toText(
+      readFieldValue(detailData, ['tradeName', 'trade_name', 'tradeTypeName', 'industryName']),
+      fallbackRow?.tradeName || '-',
+    ),
+    consAddr: toText(readFieldValue(detailData, ['consAddr', 'cons_addr', 'consAddress', 'address']), fallbackRow?.consAddr || '-'),
+    consTypeName: toText(fallbackRow?.consTypeName || '-'),
+    outageEvents: outages,
+  }
+}
+
+const loadDetailTableRows = async (targetPage = detailCurrentPage.value) => {
+  const beginTime = toBackendDateTime(props.startTime)
+  const endTime = toBackendDateTime(props.endTime)
+  if (!beginTime || !endTime) {
+    detailTableRows.value = []
+    detailTableTotal.value = 0
+    detailTablePerPage.value = DETAIL_PAGE_SIZE
+    detailTableLoading.value = false
+    detailTableError.value = ''
+    return
+  }
+
+  const payload = {
+    beginTime,
+    endTime,
+    page: Math.max(1, Number(targetPage) || 1),
+    perPage: DETAIL_PAGE_SIZE,
+  }
+  const countyId = String(props.countyId || '').trim()
+  if (countyId) {
+    payload.countyId = countyId
+  }
+
+  const keyword = detailSearchKeyword.value.trim()
+  if (keyword) {
+    payload.keyword = keyword
+  }
+
+  if (detailOutageCountFilter.value === '1' || detailOutageCountFilter.value === '2' || detailOutageCountFilter.value === '3+') {
+    payload.outageCount = detailOutageCountFilter.value
+  }
+
+  const requestId = detailTableRequestId.value + 1
+  detailTableRequestId.value = requestId
+  detailTableLoading.value = true
+  detailTableError.value = ''
+  detailTableRows.value = []
+
+  try {
+    const response = await queryCountyUserOutageStats(payload)
+    if (requestId !== detailTableRequestId.value) {
+      return
     }
 
-    return matchedKeyword && matchedCount
-  })
+    const data = response?.data || {}
+    const list = Array.isArray(data?.list) ? data.list : []
+    const total = Math.max(Number(data?.total) || 0, 0)
+    const page = Math.max(Number(data?.page) || payload.page, 1)
+    const perPage = Math.max(Number(data?.perPage) || payload.perPage, 1)
+
+    detailCurrentPage.value = page
+    detailTablePerPage.value = perPage
+    detailTableTotal.value = total
+    detailTableRows.value = list.map((item, index) => mapDetailTableRow(item, index))
+  } catch {
+    if (requestId !== detailTableRequestId.value) {
+      return
+    }
+    detailTableRows.value = []
+    detailTableTotal.value = 0
+    detailTablePerPage.value = DETAIL_PAGE_SIZE
+    detailTableError.value = '重点用户停电明细加载失败，请稍后重试。'
+  } finally {
+    if (requestId === detailTableRequestId.value) {
+      detailTableLoading.value = false
+    }
+  }
+}
+
+const detailTotalPages = computed(() => {
+  if (detailTableTotal.value <= 0) {
+    return 1
+  }
+  return Math.max(Math.ceil(detailTableTotal.value / detailTablePerPage.value), 1)
 })
 
-const detailTotalPages = computed(() =>
-  Math.max(Math.ceil(filteredImportantUserOutageRows.value.length / DETAIL_PAGE_SIZE), 1),
-)
-
-const pagedImportantUserOutageRows = computed(() => {
-  const current = Math.min(detailCurrentPage.value, detailTotalPages.value)
-  const start = (current - 1) * DETAIL_PAGE_SIZE
-  return filteredImportantUserOutageRows.value.slice(start, start + DETAIL_PAGE_SIZE)
-})
+const pagedImportantUserOutageRows = computed(() => detailTableRows.value)
 
 const detailPageButtons = computed(() => {
   const total = detailTotalPages.value
@@ -722,18 +866,24 @@ const detailPageButtons = computed(() => {
 const openDetailPage = () => {
   detailPageVisible.value = true
   emit('open-detail-page')
+  void loadDetailTableRows(1)
 }
 
 const closeDetailPage = () => {
   detailPageVisible.value = false
+  detailTableRequestId.value += 1
+  detailTableLoading.value = false
+  detailModalRequestId.value += 1
+  detailModalLoading.value = false
+  detailModalError.value = ''
   detailModalVisible.value = false
   selectedUserDetail.value = null
 }
 
 const applyDetailSearch = () => {
   detailSearchKeyword.value = detailSearchInput.value.trim()
-  detailCurrentPage.value = 1
   detailJumpPageInput.value = ''
+  goDetailPage(1)
 }
 
 const goDetailPage = (page) => {
@@ -742,6 +892,10 @@ const goDetailPage = (page) => {
   }
   const target = Math.max(1, Math.min(detailTotalPages.value, page))
   detailCurrentPage.value = target
+  detailJumpPageInput.value = ''
+  if (detailPageVisible.value) {
+    void loadDetailTableRows(target)
+  }
 }
 
 const jumpToDetailPage = () => {
@@ -756,12 +910,62 @@ const jumpToDetailPage = () => {
   goDetailPage(Math.round(parsed))
 }
 
-const openUserDetailModal = (item) => {
-  selectedUserDetail.value = item
+const openUserDetailModal = async (item) => {
   detailModalVisible.value = true
+  detailModalLoading.value = true
+  detailModalError.value = ''
+  selectedUserDetail.value = mapUserOutageDetailData({}, item)
+
+  const consNo = String(item?.consNo || '').trim()
+  const beginTime = toBackendDateTime(props.startTime)
+  const endTime = toBackendDateTime(props.endTime)
+  if (!consNo) {
+    detailModalLoading.value = false
+    detailModalError.value = '用户编号缺失，无法加载详情。'
+    return
+  }
+  if (!beginTime || !endTime) {
+    detailModalLoading.value = false
+    detailModalError.value = '时间范围缺失，无法加载详情。'
+    return
+  }
+
+  const payload = {
+    beginTime,
+    endTime,
+    consNo,
+  }
+  const countyId = String(props.countyId || '').trim()
+  if (countyId) {
+    payload.countyId = countyId
+  }
+
+  const requestId = detailModalRequestId.value + 1
+  detailModalRequestId.value = requestId
+
+  try {
+    const response = await queryCountyUserOutageDetail(payload)
+    if (requestId !== detailModalRequestId.value) {
+      return
+    }
+
+    selectedUserDetail.value = mapUserOutageDetailData(response?.data || {}, item)
+  } catch {
+    if (requestId !== detailModalRequestId.value) {
+      return
+    }
+    detailModalError.value = '用户详情加载失败，请稍后重试。'
+  } finally {
+    if (requestId === detailModalRequestId.value) {
+      detailModalLoading.value = false
+    }
+  }
 }
 
 const closeUserDetailModal = () => {
+  detailModalRequestId.value += 1
+  detailModalLoading.value = false
+  detailModalError.value = ''
   detailModalVisible.value = false
   selectedUserDetail.value = null
 }
@@ -777,17 +981,18 @@ watch(
 )
 
 watch(detailOutageCountFilter, () => {
-  detailCurrentPage.value = 1
-  detailJumpPageInput.value = ''
+  goDetailPage(1)
 })
 
 watch(
-  () => [props.startTime, props.endTime, props.users],
+  () => [props.startTime, props.endTime, props.countyId],
   () => {
     detailCurrentPage.value = 1
     detailJumpPageInput.value = ''
+    if (detailPageVisible.value) {
+      void loadDetailTableRows(1)
+    }
   },
-  { deep: true },
 )
 </script>
 
@@ -943,7 +1148,9 @@ watch(
             placeholder="请输入用户编号或用户名称"
             @keyup.enter="applyDetailSearch"
           />
-          <button type="button" class="trend-detail-query-btn" @click="applyDetailSearch">查询</button>
+          <button type="button" class="trend-detail-query-btn" :disabled="detailTableLoading" @click="applyDetailSearch">
+            查询
+          </button>
           <div class="trend-detail-count-filter-wrap">
             <span class="trend-detail-count-filter-label">停电次数</span>
             <select v-model="detailOutageCountFilter" class="trend-detail-count-filter">
@@ -962,7 +1169,7 @@ watch(
               <span>用户名称</span>
               <span title="区县">区县</span>
               <span title="停电次数">停电次数</span>
-              <span>停电时间段</span>
+              <span>所属行业</span>
               <span>详情</span>
             </li>
             <li v-for="item in pagedImportantUserOutageRows" :key="item.id" class="trend-detail-grid trend-detail-grid-row">
@@ -978,17 +1185,19 @@ watch(
               <span class="trend-detail-cell hover-expand-cell" :data-full="String(item.outageCount)">
                 <span class="trend-detail-cell-text">{{ item.outageCount }}</span>
               </span>
-              <span class="trend-detail-cell trend-detail-period-cell hover-expand-cell" :data-full="item.outagePeriodsText">
-                <span class="trend-detail-cell-text">{{ item.outagePeriodsText }}</span>
+              <span class="trend-detail-cell trend-detail-period-cell hover-expand-cell" :data-full="item.tradeName">
+                <span class="trend-detail-cell-text">{{ item.tradeName }}</span>
               </span>
               <button type="button" class="detail-btn" @click="openUserDetailModal(item)">详情</button>
             </li>
           </ul>
 
-          <p v-if="pagedImportantUserOutageRows.length === 0" class="empty-tip">当前时间段暂无重点用户停电明细。</p>
+          <p v-if="detailTableLoading" class="empty-tip">重点用户停电明细加载中...</p>
+          <p v-else-if="detailTableError" class="empty-tip">{{ detailTableError }}</p>
+          <p v-else-if="pagedImportantUserOutageRows.length === 0" class="empty-tip">当前时间段暂无重点用户停电明细。</p>
         </div>
 
-        <footer class="user-detail-pagination" v-if="filteredImportantUserOutageRows.length > 0">
+        <footer class="user-detail-pagination" v-if="detailTableTotal > 0">
           <button
             v-for="page in detailPageButtons"
             :key="`key-user-time-detail-page-${page}`"
@@ -1022,22 +1231,20 @@ watch(
           <div class="user-detail-modal-content">
             <p><span>用户编号：</span>{{ selectedUserDetail.consNo }}</p>
             <p><span>用户名称：</span>{{ selectedUserDetail.consName }}</p>
-            <p><span>用户类型：</span>{{ selectedUserDetail.userLevel }}</p>
             <p><span>停电次数：</span>{{ selectedUserDetail.outageCount }}</p>
             <p><span>所属区县：</span>{{ selectedUserDetail.countyName }}</p>
             <p><span>所属行业：</span>{{ selectedUserDetail.tradeName }}</p>
             <p><span>用户地址：</span>{{ selectedUserDetail.consAddr }}</p>
-            <p><span>用户类别：</span>{{ selectedUserDetail.consTypeName }}</p>
             <div class="trend-detail-event-list">
               <h5>停电记录</h5>
-              <ul>
+              <p v-if="detailModalLoading" class="empty-tip">用户详情加载中...</p>
+              <p v-else-if="detailModalError" class="empty-tip">{{ detailModalError }}</p>
+              <p v-else-if="selectedUserDetail.outageEvents.length === 0" class="empty-tip">当前时间段暂无停电记录。</p>
+              <ul v-else>
                 <li v-for="event in selectedUserDetail.outageEvents" :key="event.eventKey">
                   <strong>{{ event.periodText }}</strong>
-                  <span>事件号：{{ event.outageNumber }}</span>
-                  <span>停电性质：{{ event.outageNature }}</span>
-                  <span>线路名称：{{ event.feederName }}</span>
-                  <span>设备名称：{{ event.equipmentName }}</span>
-                  <span>供电公司：{{ event.maintGroupName }}</span>
+                  <span>停电开始时间：{{ event.beginTime }}</span>
+                  <span>复电时间：{{ event.endTime }}</span>
                 </li>
               </ul>
             </div>

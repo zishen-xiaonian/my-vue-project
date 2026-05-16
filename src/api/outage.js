@@ -15,6 +15,10 @@ const COUNTY_OUTAGE_FREQ_API = import.meta.env.VITE_COUNTY_OUTAGE_FREQ_API || '/
 const COUNTY_DETAIL_STATS_API = import.meta.env.VITE_COUNTY_DETAIL_STATS_API || '/api/county/detail-stats'
 const COUNTY_USER_LIST_API = import.meta.env.VITE_COUNTY_USER_LIST_API || '/api/county/user-list'
 const COUNTY_USER_DETAIL_API = import.meta.env.VITE_COUNTY_USER_DETAIL_API || '/api/county/user-detail'
+const COUNTY_USER_OUTAGE_STATS_API =
+  import.meta.env.VITE_COUNTY_USER_OUTAGE_STATS_API || '/api/county/user-outage-stats'
+const COUNTY_USER_OUTAGE_DETAIL_API =
+  import.meta.env.VITE_COUNTY_USER_OUTAGE_DETAIL_API || '/api/county/user-outage-detail'
 const COUNTY_EQUIPMENT_STATS_API =
   import.meta.env.VITE_COUNTY_EQUIPMENT_STATS_API || '/api/county/equipment-stats'
 const COUNTY_EQUIPMENT_LIST_API =
@@ -79,6 +83,16 @@ export const queryCountyUserList = (params) =>
 
 export const queryCountyUserDetail = (params) =>
   postJson(COUNTY_USER_DETAIL_API, params, {
+    timeout: DEFAULT_STATS_TIMEOUT,
+  })
+
+export const queryCountyUserOutageStats = (params) =>
+  postJson(COUNTY_USER_OUTAGE_STATS_API, params, {
+    timeout: DEFAULT_STATS_TIMEOUT,
+  })
+
+export const queryCountyUserOutageDetail = (params) =>
+  postJson(COUNTY_USER_OUTAGE_DETAIL_API, params, {
     timeout: DEFAULT_STATS_TIMEOUT,
   })
 

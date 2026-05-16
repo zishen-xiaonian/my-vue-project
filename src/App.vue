@@ -1222,6 +1222,7 @@ const filteredOutageEvents = computed(() => {
 })
 
 const countyRegionOptions = computed(() => regionOptions.value)
+const selectedRegionCountyId = computed(() => getCountyIdByRegionName(selectedRegion.value))
 
 const countyWarningLights = computed(() => {
   const fallbackCountyNames = Object.keys(countyCenterMap)
@@ -4065,6 +4066,7 @@ onBeforeUnmount(() => {
               <KeyUserTimeTrendCard
                 :start-time="queryStartTime"
                 :end-time="queryEndTime"
+                :county-id="selectedRegionCountyId"
                 :outage-freq-data="countyOutageFreqData"
                 :users="tagAndKeyUserSourceUsers"
                 :time-segments="keyUserTimeTrend.labels"
