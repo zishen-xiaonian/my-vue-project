@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { queryCountyEquipmentDetail } from '../api/outage'
 
 const props = defineProps({
   rows: {
@@ -27,6 +28,7 @@ const props = defineProps({
     default: () => [],
   },
 })
+const emit = defineEmits(['open-detail-page', 'close-detail-page'])
 
 const toCount = (value) => Math.max(0, Number(value) || 0)
 
@@ -75,10 +77,14 @@ const buildSegmentStyle = (percent, count) => {
 const detailPageVisible = ref(false)
 const detailModalVisible = ref(false)
 const selectedDetailRow = ref(null)
+const detailModalLoading = ref(false)
+const detailModalError = ref('')
+const detailModalRequestId = ref(0)
 const selectedTopDeviceId = ref('')
 
 const normalizedDetailRows = computed(() =>
   props.detailRows.map((item, index) => {
+    const equipmentId = String(item?.equipmentId || item?.deviceNo || '').trim() || '-'
     const deviceNo = String(item?.deviceNo || '').trim() || '-'
     const deviceName = String(item?.deviceName || '').trim() || '-'
     const importantUserCount = toCount(item?.importantUserCount)
@@ -89,6 +95,7 @@ const normalizedDetailRows = computed(() =>
 
     return {
       id: String(item?.key || `${deviceNo}-${deviceName}-${index}`),
+      equipmentId,
       deviceNo,
       deviceName,
       importantUserCount,
@@ -149,22 +156,93 @@ watch(
 
 const openDetailPage = () => {
   detailPageVisible.value = true
+  emit('open-detail-page')
 }
 
 const closeDetailPage = () => {
   detailPageVisible.value = false
   detailModalVisible.value = false
+  detailModalLoading.value = false
+  detailModalError.value = ''
   selectedDetailRow.value = null
+  detailModalRequestId.value += 1
+  emit('close-detail-page')
 }
 
-const openDetailModal = (item) => {
-  selectedDetailRow.value = item
+const buildUserDisplayText = (record) => {
+  const consNo = String(record?.consNo || record?.cons_no || record?.userNo || record?.user_id || '').trim() || '-'
+  const consName = String(record?.consName || record?.cons_name || record?.userName || record?.name || '').trim() || '-'
+  const countyName = String(record?.countyName || record?.county_name || '').trim() || '-'
+  const consAddr = String(record?.consAddr || record?.cons_addr || record?.consAddress || record?.address || '').trim() || '-'
+  return `${consNo} / ${consName} / ${countyName} / ${consAddr}`
+}
+
+const mapDetailUsers = (users) =>
+  (Array.isArray(users) ? users : []).map((item) => buildUserDisplayText(item))
+
+const openDetailModal = async (item) => {
+  const equipmentId = String(item?.equipmentId || item?.deviceNo || '').trim()
+  selectedDetailRow.value = {
+    ...(item || {}),
+    equipmentId: equipmentId || '-',
+    deviceNo: String(item?.deviceNo || equipmentId || '').trim() || '-',
+    deviceName: String(item?.deviceName || '').trim() || '-',
+    importantUserCount: toCount(item?.importantUserCount),
+    sensitiveUserCount: toCount(item?.sensitiveUserCount),
+    importantUserList: Array.isArray(item?.importantUserList) ? item.importantUserList : [],
+    sensitiveUserList: Array.isArray(item?.sensitiveUserList) ? item.sensitiveUserList : [],
+  }
   detailModalVisible.value = true
+  detailModalLoading.value = true
+  detailModalError.value = ''
+
+  if (!equipmentId) {
+    detailModalLoading.value = false
+    detailModalError.value = 'Missing equipment ID. Unable to load details.'
+    return
+  }
+
+  const requestId = detailModalRequestId.value + 1
+  detailModalRequestId.value = requestId
+
+  try {
+    const response = await queryCountyEquipmentDetail({ equipmentId })
+    if (requestId !== detailModalRequestId.value) {
+      return
+    }
+
+    const data = response?.data || {}
+    const importantUserList = mapDetailUsers(data?.keyUsers)
+    const sensitiveUserList = mapDetailUsers(data?.sensitiveUsers)
+
+    selectedDetailRow.value = {
+      ...(selectedDetailRow.value || {}),
+      equipmentId: String(data?.equipmentId || equipmentId).trim() || '-',
+      deviceNo: String(data?.equipmentId || selectedDetailRow.value?.deviceNo || equipmentId).trim() || '-',
+      deviceName: String(data?.equipmentName || selectedDetailRow.value?.deviceName || '').trim() || '-',
+      importantUserCount: toCount(data?.keyUserCount ?? importantUserList.length),
+      sensitiveUserCount: toCount(data?.sensitiveUserCount ?? sensitiveUserList.length),
+      importantUserList,
+      sensitiveUserList,
+    }
+  } catch {
+    if (requestId !== detailModalRequestId.value) {
+      return
+    }
+    detailModalError.value = 'Failed to load details. Please try again.'
+  } finally {
+    if (requestId === detailModalRequestId.value) {
+      detailModalLoading.value = false
+    }
+  }
 }
 
 const closeDetailModal = () => {
   detailModalVisible.value = false
+  detailModalLoading.value = false
+  detailModalError.value = ''
   selectedDetailRow.value = null
+  detailModalRequestId.value += 1
 }
 
 const selectTopDevice = (item) => {

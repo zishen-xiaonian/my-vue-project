@@ -4,6 +4,9 @@ import {
   queryCountyTrend,
   queryCountyOutageFreq,
   queryCountyDetailStats,
+  queryCountyEquipmentList,
+  queryCountyEquipmentPage,
+  queryCountyEquipmentStats,
   queryCountyList,
   queryCountyStats,
   queryCountyUserDetail,
@@ -87,6 +90,10 @@ const countyOutageFreqData = ref({
     distribution: [],
   },
 })
+const countyEquipmentStatsSummary = ref(null)
+const countyEquipmentListRows = ref([])
+const countyEquipmentPageRows = ref([])
+const spaceDistributionDetailVisible = ref(false)
 
 const selectedRegion = ref('全部')
 const selectedEventId = ref('')
@@ -924,6 +931,181 @@ const loadCountyOutageFreqData = async ({ beginTime, endTime }) => {
   return countyOutageFreqData.value
 }
 
+const mapCountyEquipmentStatsSummary = (response) => {
+  const data = response?.data || {}
+  return {
+    affectedDeviceCount: Math.max(safeNumber(data?.equipmentCount), 0),
+    sensitiveUserTotal: Math.max(safeNumber(data?.sensitiveUsers), 0),
+    importantUserTotal: Math.max(safeNumber(data?.keyUsers), 0),
+    highRiskDeviceCount: Math.max(safeNumber(data?.highImpactEquipmentCount), 0),
+    highRiskRatio: Math.max(safeNumber(data?.highImpactPercentage), 0),
+  }
+}
+
+const loadCountyEquipmentStatsSummary = async ({ beginTime, endTime }) => {
+  if (!beginTime || !endTime) {
+    countyEquipmentStatsSummary.value = null
+    return null
+  }
+
+  const payload = {
+    beginTime,
+    endTime,
+  }
+  const countyId = getCountyIdByRegionName(selectedRegion.value)
+  if (countyId) {
+    payload.countyId = countyId
+  } else if (countyListCityId) {
+    payload.cityId = countyListCityId
+  }
+
+  try {
+    const response = await queryCountyEquipmentStats(payload)
+    countyEquipmentStatsSummary.value = mapCountyEquipmentStatsSummary(response)
+    return countyEquipmentStatsSummary.value
+  } catch {
+    countyEquipmentStatsSummary.value = null
+    return null
+  }
+}
+
+const mapCountyEquipmentListRows = (response) => {
+  const data = response?.data || {}
+  const list = Array.isArray(data?.list) ? data.list : []
+
+  return list
+    .map((item, index) => {
+      const deviceNo = String(
+        item?.equipmentId || item?.equipmentNo || item?.deviceNo || item?.device_id || '',
+      ).trim() || '-'
+      const equipmentId = String(item?.equipmentId || item?.equipment_id || deviceNo || '').trim() || '-'
+      const deviceName = String(item?.equipmentName || item?.deviceName || item?.name || '').trim() || '-'
+      const importantUserCount = Math.max(safeNumber(item?.keyUsers), 0)
+      const sensitiveUserCount = Math.max(safeNumber(item?.sensitiveUsers), 0)
+      const outageEventCount = Math.max(safeNumber(item?.outageCount), 0)
+
+      return {
+        key: String(item?.equipmentId || item?.id || `${deviceNo}-${deviceName}-${index}`),
+        equipmentId,
+        deviceNo,
+        deviceName,
+        importantUserCount,
+        sensitiveUserCount,
+        outageEventCount,
+        importantUserList: [],
+        sensitiveUserList: [],
+      }
+    })
+    .sort((a, b) => {
+      if (a.importantUserCount !== b.importantUserCount) {
+        return b.importantUserCount - a.importantUserCount
+      }
+      if (a.outageEventCount !== b.outageEventCount) {
+        return b.outageEventCount - a.outageEventCount
+      }
+      if (a.sensitiveUserCount !== b.sensitiveUserCount) {
+        return b.sensitiveUserCount - a.sensitiveUserCount
+      }
+      return String(a.deviceName || '').localeCompare(String(b.deviceName || ''), 'zh-Hans-CN')
+    })
+}
+
+const loadCountyEquipmentListRows = async ({ beginTime, endTime }) => {
+  if (!beginTime || !endTime) {
+    countyEquipmentListRows.value = []
+    return []
+  }
+
+  const payload = {
+    beginTime,
+    endTime,
+  }
+  const countyId = getCountyIdByRegionName(selectedRegion.value)
+  if (countyId) {
+    payload.countyId = countyId
+  } else if (countyListCityId) {
+    payload.cityId = countyListCityId
+  }
+
+  try {
+    const response = await queryCountyEquipmentList(payload)
+    countyEquipmentListRows.value = mapCountyEquipmentListRows(response)
+  } catch {
+    countyEquipmentListRows.value = []
+  }
+
+  return countyEquipmentListRows.value
+}
+
+const SPACE_EQUIPMENT_PAGE_NUMBER = 1
+const SPACE_EQUIPMENT_PAGE_SIZE = 200
+
+const mapCountyEquipmentPageRows = (response) => {
+  const data = response?.data || {}
+  const list = Array.isArray(data?.list) ? data.list : []
+
+  return list
+    .map((item, index) => {
+      const deviceNo = String(
+        item?.equipmentId || item?.equipmentNo || item?.deviceNo || item?.device_id || '',
+      ).trim() || '-'
+      const equipmentId = String(item?.equipmentId || item?.equipment_id || deviceNo || '').trim() || '-'
+      const deviceName = String(item?.equipmentName || item?.deviceName || item?.name || '').trim() || '-'
+      const importantUserCount = Math.max(safeNumber(item?.keyUsers), 0)
+      const sensitiveUserCount = Math.max(safeNumber(item?.sensitiveUsers), 0)
+
+      return {
+        key: String(item?.equipmentId || item?.id || `${deviceNo}-${deviceName}-${index}`),
+        equipmentId,
+        deviceNo,
+        deviceName,
+        importantUserCount,
+        sensitiveUserCount,
+        outageEventCount: 0,
+        importantUserList: [],
+        sensitiveUserList: [],
+      }
+    })
+    .sort((a, b) => {
+      if (a.importantUserCount !== b.importantUserCount) {
+        return b.importantUserCount - a.importantUserCount
+      }
+      if (a.sensitiveUserCount !== b.sensitiveUserCount) {
+        return b.sensitiveUserCount - a.sensitiveUserCount
+      }
+      return String(a.deviceName || '').localeCompare(String(b.deviceName || ''), 'zh-Hans-CN')
+    })
+}
+
+const loadCountyEquipmentPageRows = async ({ beginTime, endTime }) => {
+  if (!beginTime || !endTime) {
+    countyEquipmentPageRows.value = []
+    return []
+  }
+
+  const payload = {
+    beginTime,
+    endTime,
+    page: SPACE_EQUIPMENT_PAGE_NUMBER,
+    perPage: SPACE_EQUIPMENT_PAGE_SIZE,
+  }
+  const countyId = getCountyIdByRegionName(selectedRegion.value)
+  if (countyId) {
+    payload.countyId = countyId
+  } else if (countyListCityId) {
+    payload.cityId = countyListCityId
+  }
+
+  try {
+    const response = await queryCountyEquipmentPage(payload)
+    countyEquipmentPageRows.value = mapCountyEquipmentPageRows(response)
+  } catch {
+    countyEquipmentPageRows.value = []
+  }
+
+  return countyEquipmentPageRows.value
+}
+
 const handleOpenTimeTrendDetailPage = () => {
   const beginTime = toBackendDateTime(queryStartTime.value)
   const endTime = toBackendDateTime(queryEndTime.value)
@@ -940,6 +1122,9 @@ const loadDashboardData = async (customRange = null) => {
   dataNotice.value = ''
   tagStatsOverview.value = null
   countyStatsRows.value = []
+  countyEquipmentStatsSummary.value = null
+  countyEquipmentListRows.value = []
+  countyEquipmentPageRows.value = []
   faultSummaryData.value = null
   outageScopeSummaryData.value = null
 
@@ -972,12 +1157,19 @@ const loadDashboardData = async (customRange = null) => {
       endTime,
     }
 
-    const [tagStatsResponse, listRecords, users] = await Promise.all([
+    const requests = [
       loadTagStatsOverview(basePayload),
       queryOutageEventsByPages(basePayload),
       queryOutageUsersByPages(basePayload),
       loadCountyTrendData(basePayload),
-    ])
+    ]
+    if (spaceDistributionDetailVisible.value) {
+      requests.push(loadCountyEquipmentStatsSummary(basePayload))
+      requests.push(loadCountyEquipmentListRows(basePayload))
+      requests.push(loadCountyEquipmentPageRows(basePayload))
+    }
+
+    const [tagStatsResponse, listRecords, users] = await Promise.all(requests)
 
     outageIndexRecords.value = []
     tagStatsOverview.value = tagStatsResponse
@@ -1000,6 +1192,9 @@ const loadDashboardData = async (customRange = null) => {
     outageUsers.value = []
     tagStatsOverview.value = null
     countyStatsRows.value = []
+    countyEquipmentStatsSummary.value = null
+    countyEquipmentListRows.value = []
+    countyEquipmentPageRows.value = []
     faultSummaryData.value = null
     outageScopeSummaryData.value = null
     countyTrendData.value = buildDefaultCountyTrendData(beginTime, endTime)
@@ -3191,6 +3386,20 @@ watch(selectedRegion, (regionName) => {
     beginTime: toBackendDateTime(queryStartTime.value),
     endTime: toBackendDateTime(queryEndTime.value),
   })
+  if (spaceDistributionDetailVisible.value) {
+    void loadCountyEquipmentStatsSummary({
+      beginTime: toBackendDateTime(queryStartTime.value),
+      endTime: toBackendDateTime(queryEndTime.value),
+    })
+    void loadCountyEquipmentListRows({
+      beginTime: toBackendDateTime(queryStartTime.value),
+      endTime: toBackendDateTime(queryEndTime.value),
+    })
+    void loadCountyEquipmentPageRows({
+      beginTime: toBackendDateTime(queryStartTime.value),
+      endTime: toBackendDateTime(queryEndTime.value),
+    })
+  }
 
   if (showKeyUserDetailPage.value) {
     keyUserDetailCurrentPage.value = 1
@@ -3304,9 +3513,36 @@ const applyTimeFilter = async () => {
   }
 }
 
+const handleOpenSpaceDistributionDetailPage = () => {
+  spaceDistributionDetailVisible.value = true
+  countyEquipmentListRows.value = []
+  countyEquipmentPageRows.value = []
+  void loadCountyEquipmentStatsSummary({
+    beginTime: toBackendDateTime(queryStartTime.value),
+    endTime: toBackendDateTime(queryEndTime.value),
+  })
+  void loadCountyEquipmentListRows({
+    beginTime: toBackendDateTime(queryStartTime.value),
+    endTime: toBackendDateTime(queryEndTime.value),
+  })
+  void loadCountyEquipmentPageRows({
+    beginTime: toBackendDateTime(queryStartTime.value),
+    endTime: toBackendDateTime(queryEndTime.value),
+  })
+}
+
+const handleCloseSpaceDistributionDetailPage = () => {
+  spaceDistributionDetailVisible.value = false
+  countyEquipmentListRows.value = []
+  countyEquipmentPageRows.value = []
+}
+
 const toggleLeftPanel = () => {
   isLeftCollapsed.value = !isLeftCollapsed.value
   if (isLeftCollapsed.value) {
+    spaceDistributionDetailVisible.value = false
+    countyEquipmentListRows.value = []
+    countyEquipmentPageRows.value = []
     closeOutageRangeAssessmentPage()
     closeOutageDetailPage()
     closeUserDetailPage()
@@ -3324,6 +3560,11 @@ const toggleRightPanel = () => {
 
 const switchPageTab = (tab) => {
   activePageTab.value = tab === 'sensitiveDemand' ? 'sensitiveDemand' : 'outageUsers'
+  if (activePageTab.value !== 'outageUsers') {
+    spaceDistributionDetailVisible.value = false
+    countyEquipmentListRows.value = []
+    countyEquipmentPageRows.value = []
+  }
 }
 
 const resolveRegionOptionName = (regionName) => {
@@ -3836,7 +4077,11 @@ onBeforeUnmount(() => {
               <KeyUserCountBarCard
                 :rows="keyUserCountRows"
                 :selected-region="selectedRegion"
-                :detail-rows="spaceDistributionDeviceRows"
+                :detail-rows="countyEquipmentListRows"
+                :table-rows="countyEquipmentPageRows"
+                :summary-stats="countyEquipmentStatsSummary"
+                @open-detail-page="handleOpenSpaceDistributionDetailPage"
+                @close-detail-page="handleCloseSpaceDistributionDetailPage"
               />
             </template>
           </section>

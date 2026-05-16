@@ -15,6 +15,14 @@ const COUNTY_OUTAGE_FREQ_API = import.meta.env.VITE_COUNTY_OUTAGE_FREQ_API || '/
 const COUNTY_DETAIL_STATS_API = import.meta.env.VITE_COUNTY_DETAIL_STATS_API || '/api/county/detail-stats'
 const COUNTY_USER_LIST_API = import.meta.env.VITE_COUNTY_USER_LIST_API || '/api/county/user-list'
 const COUNTY_USER_DETAIL_API = import.meta.env.VITE_COUNTY_USER_DETAIL_API || '/api/county/user-detail'
+const COUNTY_EQUIPMENT_STATS_API =
+  import.meta.env.VITE_COUNTY_EQUIPMENT_STATS_API || '/api/county/equipment-stats'
+const COUNTY_EQUIPMENT_LIST_API =
+  import.meta.env.VITE_COUNTY_EQUIPMENT_LIST_API || '/api/county/equipment-list'
+const COUNTY_EQUIPMENT_PAGE_API =
+  import.meta.env.VITE_COUNTY_EQUIPMENT_PAGE_API || '/api/county/equipment-page'
+const COUNTY_EQUIPMENT_DETAIL_API =
+  import.meta.env.VITE_COUNTY_EQUIPMENT_DETAIL_API || '/api/county/equipment-detail'
 
 const TIME_TREND_SERIES_API = import.meta.env.VITE_TIME_TREND_SERIES_API || '/api/time-trend/series'
 const TIME_TREND_USER_DETAIL_API = import.meta.env.VITE_TIME_TREND_USER_DETAIL_API || '/api/time-trend/user-detail'
@@ -71,6 +79,26 @@ export const queryCountyUserList = (params) =>
 
 export const queryCountyUserDetail = (params) =>
   postJson(COUNTY_USER_DETAIL_API, params, {
+    timeout: DEFAULT_STATS_TIMEOUT,
+  })
+
+export const queryCountyEquipmentStats = (params) =>
+  postJson(COUNTY_EQUIPMENT_STATS_API, params, {
+    timeout: DEFAULT_STATS_TIMEOUT,
+  })
+
+export const queryCountyEquipmentList = (params) =>
+  postJson(COUNTY_EQUIPMENT_LIST_API, params, {
+    timeout: DEFAULT_STATS_TIMEOUT,
+  })
+
+export const queryCountyEquipmentPage = (params) =>
+  postJson(COUNTY_EQUIPMENT_PAGE_API, params, {
+    timeout: DEFAULT_STATS_TIMEOUT,
+  })
+
+export const queryCountyEquipmentDetail = (params) =>
+  postJson(COUNTY_EQUIPMENT_DETAIL_API, params, {
     timeout: DEFAULT_STATS_TIMEOUT,
   })
 
