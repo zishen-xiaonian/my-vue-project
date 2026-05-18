@@ -18,6 +18,10 @@ const props = defineProps({
     type: Number,
     default: 1,
   },
+  outageRangeLoading: {
+    type: Boolean,
+    default: false,
+  },
   showOutageRangeAssessmentPage: {
     type: Boolean,
     default: false,
@@ -47,7 +51,7 @@ const outageRangeTotalPages = computed(() => {
 
 const outageRangePageStartIndex = computed(() => (props.outageRangeCurrentPage - 1) * OUTAGE_RANGE_DEFAULT_PAGE_SIZE)
 
-const outageRangeRenderedRows = computed(() => Math.max(1, props.outageRangeChains.length))
+const outageRangeRenderedRows = computed(() => OUTAGE_RANGE_DEFAULT_PAGE_SIZE)
 
 const outageRangePageButtons = computed(() => {
   const total = outageRangeTotalPages.value
@@ -162,7 +166,9 @@ watch(
       <button type="button" class="outage-range-assessment-close" @click="emit('close-outage-range-detail')">×</button>
     </header>
 
-    <section v-if="props.outageRangeChains.length > 0" class="outage-range-chain-content">
+    <p v-if="props.outageRangeLoading" class="empty-tip">数据加载中...</p>
+
+    <section v-else-if="props.outageRangeChains.length > 0" class="outage-range-chain-content">
       <section
         class="outage-range-chain-list"
         :style="{ '--outage-range-rows': String(outageRangeRenderedRows) }"

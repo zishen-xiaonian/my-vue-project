@@ -161,6 +161,10 @@ const props = defineProps({
     type: Number,
     default: 1,
   },
+  keyUserDetailLoading: {
+    type: Boolean,
+    default: false,
+  },
   keyUserDetailModalVisible: {
     type: Boolean,
     default: false,
@@ -254,6 +258,10 @@ const hoveredSensitiveIndustryPieItem = computed(() =>
 
 const hoveredNaturePieItem = computed(() =>
   props.keyUserNaturePieData.find((item) => item.key === hoveredNaturePieKey.value) || null,
+)
+
+const keyUserTableEmptyText = computed(() =>
+  props.keyUserDetailLoading ? '数据加载中...' : '当前暂无重点用户数据。',
 )
 </script>
 
@@ -451,7 +459,11 @@ const hoveredNaturePieItem = computed(() =>
             <span>停电性质</span>
             <span>详情</span>
           </li>
-          <li v-for="item in props.pagedKeyUserRows" :key="item.id" class="key-user-grid user-detail-grid user-detail-grid-row">
+          <li
+            v-for="item in props.keyUserDetailLoading ? [] : props.pagedKeyUserRows"
+            :key="item.id"
+            class="key-user-grid user-detail-grid user-detail-grid-row"
+          >
             <span class="user-detail-cell" :title="item.consNo">{{ item.consNo }}</span>
             <span class="user-detail-cell" :title="item.consName">{{ item.consName }}</span>
             <span class="user-detail-cell" :title="item.countyName">{{ item.countyName }}</span>
@@ -461,7 +473,7 @@ const hoveredNaturePieItem = computed(() =>
           </li>
         </ul>
 
-        <p v-if="props.pagedKeyUserRows.length === 0" class="empty-tip">当前暂无重点用户数据。</p>
+        <p v-if="props.keyUserDetailLoading || props.pagedKeyUserRows.length === 0" class="empty-tip">{{ keyUserTableEmptyText }}</p>
       </div>
 
       <footer class="user-detail-pagination" v-if="props.filteredKeyUserRowsLength > 0">

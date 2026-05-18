@@ -4,6 +4,10 @@ const props = defineProps({
     type: Array,
     required: true,
   },
+  loading: {
+    type: Boolean,
+    default: false,
+  },
 })
 </script>
 
@@ -18,6 +22,9 @@ const props = defineProps({
       <li v-for="item in props.countyWarningLights" :key="item.countyName" class="county-warning-light-item">
         <span class="county-warning-light-dot" :class="item.hasOutage ? 'danger' : 'safe'"></span>
         <span class="county-warning-light-name">{{ item.countyName }}</span>
+      </li>
+      <li v-if="props.loading && props.countyWarningLights.length === 0" class="county-warning-light-loading">
+        数据加载中...
       </li>
     </ul>
   </article>
@@ -52,6 +59,9 @@ const props = defineProps({
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  min-height: 216px;
+  align-content: start;
+  position: relative;
 }
 
 .county-warning-light-item {
@@ -63,6 +73,17 @@ const props = defineProps({
   border-radius: 8px;
   padding: 6px 8px;
   background: #04213cad;
+}
+
+.county-warning-light-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  list-style: none;
+  color: rgba(196, 231, 255, 0.78);
+  font-size: 14px;
 }
 
 .county-warning-light-dot {

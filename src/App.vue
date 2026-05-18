@@ -101,7 +101,10 @@ const countyOutageFreqData = ref({
 const countyEquipmentStatsSummary = ref(null)
 const countyEquipmentListRows = ref([])
 const countyEquipmentPageRows = ref([])
+const countyEquipmentPageTotal = ref(0)
 const spaceDistributionDetailVisible = ref(false)
+const spaceDistributionDetailLoadingCount = ref(0)
+const spaceDistributionDetailLoading = computed(() => spaceDistributionDetailLoadingCount.value > 0)
 
 const selectedRegion = ref('全部')
 const selectedEventId = ref('')
@@ -110,12 +113,14 @@ const showOutageRangeAssessmentPage = ref(false)
 const outageRangeChainsData = ref([])
 const outageRangeChainsTotal = ref(0)
 const outageRangeChainsCurrentPage = ref(1)
+const outageRangeChainsLoading = ref(false)
 const showOutageDetailPage = ref(false)
 const outageDetailModalVisible = ref(false)
 const selectedOutageDetail = ref(null)
 const outageEventsSummaryData = ref(null)
 const outageDetailRows = ref([])
 const outageDetailTotal = ref(0)
+const outageDetailLoading = ref(false)
 const outageDetailCurrentPage = ref(1)
 const outageDetailSearchInput = ref('')
 const outageDetailSearchKeyword = ref('')
@@ -124,9 +129,9 @@ const outageDetailGridBodyRef = ref(null)
 const outageDetailPaginationRef = ref(null)
 const outageDetailPageJumpRef = ref(null)
 const outageDetailJumpPageInput = ref('')
-const outageDetailRowsPerPage = ref(20)
-const OUTAGE_DETAIL_MIN_PAGE_SIZE = 1
-const OUTAGE_DETAIL_MAX_PAGE_SIZE = 40
+const outageDetailRowsPerPage = ref(10)
+const OUTAGE_DETAIL_MIN_PAGE_SIZE = 10
+const OUTAGE_DETAIL_MAX_PAGE_SIZE = 10
 const OUTAGE_DETAIL_FALLBACK_HEAD_HEIGHT = 34
 const OUTAGE_DETAIL_FALLBACK_ROW_HEIGHT = 38
 const OUTAGE_DETAIL_PAGE_SIZE_BUFFER = 0
@@ -175,6 +180,7 @@ const keyUserDetailStatsData = ref({
   sensitiveUserByTrade: [],
   outageNatureDistribution: [],
 })
+const keyUserDetailLoading = ref(false)
 const keyUserDetailRows = ref([])
 const keyUserDetailTotal = ref(0)
 let keyUserDetailListRequestId = 0
@@ -463,7 +469,7 @@ const OUTAGE_SINGLE_EVENT_PAGE_LIMIT = 3
 const OUTAGE_TIME_WINDOW_MONTHS = 1
 const OUTAGE_TIME_WINDOW_MAX = 36
 const OUTAGE_DETAIL_DEFAULT_PAGE = 1
-const OUTAGE_DETAIL_DEFAULT_PER_PAGE = 20
+const OUTAGE_DETAIL_DEFAULT_PER_PAGE = 10
 const OUTAGE_DETAIL_REMOTE_MAX_PER_PAGE = 500
 const OUTAGE_CHAINS_REMOTE_PAGE_SIZE = 4
 
@@ -923,6 +929,8 @@ const loadCountyTrendData = async ({ beginTime, endTime }) => {
     return countyTrendData.value
   }
 
+  countyTrendData.value = buildDefaultCountyTrendData(beginTime, endTime)
+
   const payload = {
     beginTime,
     endTime,
@@ -978,6 +986,7 @@ const loadCountyEquipmentStatsSummary = async ({ beginTime, endTime }) => {
     return null
   }
 
+  spaceDistributionDetailLoadingCount.value += 1
   const payload = {
     beginTime,
     endTime,
@@ -991,6 +1000,8 @@ const loadCountyEquipmentStatsSummary = async ({ beginTime, endTime }) => {
   } catch {
     countyEquipmentStatsSummary.value = null
     return null
+  } finally {
+    spaceDistributionDetailLoadingCount.value = Math.max(spaceDistributionDetailLoadingCount.value - 1, 0)
   }
 }
 
@@ -1041,6 +1052,7 @@ const loadCountyEquipmentListRows = async ({ beginTime, endTime }) => {
     return []
   }
 
+  spaceDistributionDetailLoadingCount.value += 1
   const payload = {
     beginTime,
     endTime,
@@ -1052,20 +1064,25 @@ const loadCountyEquipmentListRows = async ({ beginTime, endTime }) => {
     countyEquipmentListRows.value = mapCountyEquipmentListRows(response)
   } catch {
     countyEquipmentListRows.value = []
+  } finally {
+    spaceDistributionDetailLoadingCount.value = Math.max(spaceDistributionDetailLoadingCount.value - 1, 0)
   }
 
   return countyEquipmentListRows.value
 }
 
 const SPACE_EQUIPMENT_PAGE_NUMBER = 1
-const SPACE_EQUIPMENT_PAGE_SIZE = 200
+const SPACE_EQUIPMENT_PAGE_SIZE = 10
 
-const mapCountyEquipmentPageRows = (response) => {
+const mapCountyEquipmentPageResult = (response) => {
   const data = response?.data || {}
   const list = Array.isArray(data?.list) ? data.list : []
 
-  return list
-    .map((item, index) => {
+  return {
+    total: Math.max(safeNumber(data?.total), 0),
+    page: Math.max(safeNumber(data?.page), 1),
+    perPage: Math.max(safeNumber(data?.perPage), SPACE_EQUIPMENT_PAGE_SIZE),
+    list: list.map((item, index) => {
       const deviceNo = String(
         item?.equipmentId || item?.equipmentNo || item?.deviceNo || item?.device_id || '',
       ).trim() || '-'
@@ -1085,8 +1102,7 @@ const mapCountyEquipmentPageRows = (response) => {
         importantUserList: [],
         sensitiveUserList: [],
       }
-    })
-    .sort((a, b) => {
+    }).sort((a, b) => {
       if (a.importantUserCount !== b.importantUserCount) {
         return b.importantUserCount - a.importantUserCount
       }
@@ -1094,28 +1110,36 @@ const mapCountyEquipmentPageRows = (response) => {
         return b.sensitiveUserCount - a.sensitiveUserCount
       }
       return String(a.deviceName || '').localeCompare(String(b.deviceName || ''), 'zh-Hans-CN')
-    })
+    }),
+  }
 }
 
-const loadCountyEquipmentPageRows = async ({ beginTime, endTime }) => {
+const loadCountyEquipmentPageRows = async ({ beginTime, endTime, page = SPACE_EQUIPMENT_PAGE_NUMBER }) => {
   if (!beginTime || !endTime) {
     countyEquipmentPageRows.value = []
+    countyEquipmentPageTotal.value = 0
     return []
   }
 
+  spaceDistributionDetailLoadingCount.value += 1
   const payload = {
     beginTime,
     endTime,
-    page: SPACE_EQUIPMENT_PAGE_NUMBER,
+    page,
     perPage: SPACE_EQUIPMENT_PAGE_SIZE,
   }
   appendCountyOrCityScope(payload)
 
   try {
     const response = await queryCountyEquipmentPage(payload)
-    countyEquipmentPageRows.value = mapCountyEquipmentPageRows(response)
+    const result = mapCountyEquipmentPageResult(response)
+    countyEquipmentPageRows.value = result.list
+    countyEquipmentPageTotal.value = result.total
   } catch {
     countyEquipmentPageRows.value = []
+    countyEquipmentPageTotal.value = 0
+  } finally {
+    spaceDistributionDetailLoadingCount.value = Math.max(spaceDistributionDetailLoadingCount.value - 1, 0)
   }
 
   return countyEquipmentPageRows.value
@@ -1404,11 +1428,13 @@ const loadRightPanelOutageEvents = async ({
   if (!beginTime || !endTime) {
     outageDetailRows.value = []
     outageDetailTotal.value = 0
+    outageDetailLoading.value = false
     return null
   }
 
   const payload = buildOutageEventsPayload({ beginTime, endTime, page, perPage })
   const requestId = ++outageDetailListRequestId
+  outageDetailLoading.value = true
 
   try {
     const response = await queryRightPanelOutageEvents(payload)
@@ -1443,6 +1469,10 @@ const loadRightPanelOutageEvents = async ({
     outageDetailRows.value = []
     outageDetailTotal.value = 0
     return null
+  } finally {
+    if (requestId === outageDetailListRequestId) {
+      outageDetailLoading.value = false
+    }
   }
 }
 
@@ -1613,10 +1643,12 @@ const loadRightPanelOutageChains = async ({ beginTime, endTime, page = outageRan
   if (!beginTime || !endTime) {
     outageRangeChainsData.value = []
     outageRangeChainsTotal.value = 0
+    outageRangeChainsLoading.value = false
     return null
   }
 
   const requestId = ++outageRangeChainsRequestId
+  outageRangeChainsLoading.value = true
 
   try {
     const payload = buildOutageChainsPayload({
@@ -1650,6 +1682,10 @@ const loadRightPanelOutageChains = async ({ beginTime, endTime, page = outageRan
     outageRangeChainsData.value = []
     outageRangeChainsTotal.value = 0
     return null
+  } finally {
+    if (requestId === outageRangeChainsRequestId) {
+      outageRangeChainsLoading.value = false
+    }
   }
 }
 
@@ -1695,6 +1731,7 @@ const loadDashboardData = async (customRange = null) => {
   countyEquipmentStatsSummary.value = null
   countyEquipmentListRows.value = []
   countyEquipmentPageRows.value = []
+  countyEquipmentPageTotal.value = 0
   faultSummaryData.value = null
   outageScopeSummaryData.value = null
   countyWarningLightsData.value = []
@@ -1733,13 +1770,26 @@ const loadDashboardData = async (customRange = null) => {
       beginTime,
       endTime,
     }
+    const countyWarningsRequest = queryRightPanelCountyWarnings(basePayload).then((response) => {
+      const countyWarningsData = response?.data
+      const countyWarningsList = Array.isArray(countyWarningsData)
+        ? countyWarningsData
+        : Array.isArray(countyWarningsData?.list)
+          ? countyWarningsData.list
+          : Array.isArray(countyWarningsData?.countyWarnings)
+            ? countyWarningsData.countyWarnings
+            : []
+
+      countyWarningLightsData.value = mapOverviewCountyWarningLights(countyWarningsList)
+      return response
+    })
 
     const requests = [
       loadTagStatsOverview(basePayload),
       queryOutageEventsByPages(basePayload),
       queryOutageUsersByPages(basePayload),
       loadCountyTrendData(basePayload),
-      queryRightPanelCountyWarnings(basePayload),
+      countyWarningsRequest,
       loadRightPanelFaultLocationSummary({ ...basePayload, dimension: 'feeder' }),
       loadRightPanelOutageScopeSummary(basePayload),
     ]
@@ -1753,25 +1803,12 @@ const loadDashboardData = async (customRange = null) => {
       tagStatsResponse,
       listRecords,
       users,
-      ,
-      countyWarningsResponse,
-      ,
-      ,
     ] = await Promise.all(requests)
-    const countyWarningsData = countyWarningsResponse?.data
-    const countyWarningsList = Array.isArray(countyWarningsData)
-      ? countyWarningsData
-      : Array.isArray(countyWarningsData?.list)
-        ? countyWarningsData.list
-        : Array.isArray(countyWarningsData?.countyWarnings)
-          ? countyWarningsData.countyWarnings
-          : []
 
     outageIndexRecords.value = []
     tagStatsOverview.value = tagStatsResponse
     outageEvents.value = listRecords.map((item, index) => normalizeOutageEventRecord(item, index))
     outageUsers.value = users
-    countyWarningLightsData.value = mapOverviewCountyWarningLights(countyWarningsList)
 
     if (outageUsers.value.length === 0 && outageEvents.value.length > 0) {
       dataNotice.value = '用户清单接口返回为空，标签识别和设备影响明细可能偏小。'
@@ -1790,6 +1827,7 @@ const loadDashboardData = async (customRange = null) => {
     countyEquipmentStatsSummary.value = null
     countyEquipmentListRows.value = []
     countyEquipmentPageRows.value = []
+    countyEquipmentPageTotal.value = 0
     faultSummaryData.value = null
     outageScopeSummaryData.value = null
     countyWarningLightsData.value = []
@@ -2243,7 +2281,7 @@ const outageDetailTotalPages = computed(() =>
 const pagedOutageDetailRows = computed(() => outageDetailRows.value)
 
 const recalcOutageDetailRowsPerPage = () => {
-  if (!showOutageDetailPage.value) {
+  if (!showOutageDetailPage.value || outageDetailLoading.value) {
     return
   }
 
@@ -3013,6 +3051,7 @@ const loadKeyUserDetailRows = async () => {
   if (!payload) {
     keyUserDetailRows.value = []
     keyUserDetailTotal.value = 0
+    keyUserDetailLoading.value = false
     return
   }
 
@@ -3033,6 +3072,7 @@ const loadKeyUserDetailRows = async () => {
 
   const requestId = keyUserDetailListRequestId + 1
   keyUserDetailListRequestId = requestId
+  keyUserDetailLoading.value = true
 
   try {
     const response = await queryCountyUserList(payload)
@@ -3055,6 +3095,10 @@ const loadKeyUserDetailRows = async () => {
     }
     keyUserDetailRows.value = []
     keyUserDetailTotal.value = 0
+  } finally {
+    if (requestId === keyUserDetailListRequestId) {
+      keyUserDetailLoading.value = false
+    }
   }
 }
 
@@ -3631,6 +3675,7 @@ const openUserDetailPage = () => {
 const openOutageRangeAssessmentPage = () => {
   showOutageRangeAssessmentPage.value = true
   outageRangeChainsCurrentPage.value = 1
+  outageRangeChainsLoading.value = true
   void loadRightPanelOutageChains({
     beginTime: toBackendDateTime(queryStartTime.value),
     endTime: toBackendDateTime(queryEndTime.value),
@@ -3641,6 +3686,7 @@ const openOutageRangeAssessmentPage = () => {
 const closeOutageRangeAssessmentPage = () => {
   showOutageRangeAssessmentPage.value = false
   outageRangeChainsRequestId += 1
+  outageRangeChainsLoading.value = false
 }
 
 const goOutageRangeAssessmentPage = (page) => {
@@ -3672,6 +3718,7 @@ const openKeyUserDetailPage = async () => {
   keyUserDetailJumpPageInput.value = ''
   keyUserDetailCurrentPage.value = 1
   selectedKeyUserCounty.value = ''
+  keyUserDetailLoading.value = true
   closeKeyUserDetailModal()
   await loadKeyUserDetailStats()
   await loadKeyUserDetailRows()
@@ -3828,6 +3875,7 @@ const openOutageDetailPage = () => {
   outageDetailJumpPageInput.value = ''
   outageDetailCurrentPage.value = OUTAGE_DETAIL_DEFAULT_PAGE
   outageEventsSummaryData.value = null
+  outageDetailLoading.value = true
   closeOutageDetailModal()
   void loadRightPanelOutageEventsSummary({
     beginTime: toBackendDateTime(queryStartTime.value),
@@ -3862,6 +3910,7 @@ const closeOutageDetailPage = () => {
   outageEventsSummaryRequestId += 1
   outageEventsSummaryData.value = null
   outageDetailListRequestId += 1
+  outageDetailLoading.value = false
   if (outageDetailLayoutObserver) {
     outageDetailLayoutObserver.disconnect()
     outageDetailLayoutObserver = null
@@ -4269,6 +4318,7 @@ const handleOpenSpaceDistributionDetailPage = () => {
   spaceDistributionDetailVisible.value = true
   countyEquipmentListRows.value = []
   countyEquipmentPageRows.value = []
+  countyEquipmentPageTotal.value = 0
   void loadCountyEquipmentStatsSummary({
     beginTime: toBackendDateTime(queryStartTime.value),
     endTime: toBackendDateTime(queryEndTime.value),
@@ -4280,6 +4330,15 @@ const handleOpenSpaceDistributionDetailPage = () => {
   void loadCountyEquipmentPageRows({
     beginTime: toBackendDateTime(queryStartTime.value),
     endTime: toBackendDateTime(queryEndTime.value),
+    page: 1,
+  })
+}
+
+const handleGoSpaceDistributionDetailPage = (page) => {
+  void loadCountyEquipmentPageRows({
+    beginTime: toBackendDateTime(queryStartTime.value),
+    endTime: toBackendDateTime(queryEndTime.value),
+    page,
   })
 }
 
@@ -4287,6 +4346,7 @@ const handleCloseSpaceDistributionDetailPage = () => {
   spaceDistributionDetailVisible.value = false
   countyEquipmentListRows.value = []
   countyEquipmentPageRows.value = []
+  countyEquipmentPageTotal.value = 0
 }
 
 const toggleLeftPanel = () => {
@@ -4295,6 +4355,7 @@ const toggleLeftPanel = () => {
     spaceDistributionDetailVisible.value = false
     countyEquipmentListRows.value = []
     countyEquipmentPageRows.value = []
+    countyEquipmentPageTotal.value = 0
     closeOutageRangeAssessmentPage()
     closeOutageDetailPage()
     closeUserDetailPage()
@@ -4316,6 +4377,7 @@ const switchPageTab = (tab) => {
     spaceDistributionDetailVisible.value = false
     countyEquipmentListRows.value = []
     countyEquipmentPageRows.value = []
+    countyEquipmentPageTotal.value = 0
   }
 }
 
@@ -4789,6 +4851,7 @@ onBeforeUnmount(() => {
                 :key-user-current-page="keyUserDetailCurrentPage"
                 :key-user-jump-page-input="keyUserDetailJumpPageInput"
                 :key-user-total-pages="keyUserDetailTotalPages"
+                :key-user-detail-loading="keyUserDetailLoading"
                 :key-user-detail-modal-visible="keyUserDetailModalVisible"
                 :selected-key-user-detail="selectedKeyUserDetail"
                 @open-user-detail="openUserDetailPage"
@@ -4832,8 +4895,11 @@ onBeforeUnmount(() => {
                 :selected-region="selectedRegion"
                 :detail-rows="countyEquipmentListRows"
                 :table-rows="countyEquipmentPageRows"
+                :table-total="countyEquipmentPageTotal"
                 :summary-stats="countyEquipmentStatsSummary"
+                :loading="spaceDistributionDetailLoading"
                 @open-detail-page="handleOpenSpaceDistributionDetailPage"
+                @go-detail-page="handleGoSpaceDistributionDetailPage"
                 @close-detail-page="handleCloseSpaceDistributionDetailPage"
               />
             </template>
@@ -4849,7 +4915,7 @@ onBeforeUnmount(() => {
         <div v-show="!isRightCollapsed" class="panel-inner">
           <section class="card module-card">
             <template v-if="activePageTab === 'outageUsers'">
-              <CountyWarningLightsCard :county-warning-lights="countyWarningLights" />
+              <CountyWarningLightsCard :county-warning-lights="countyWarningLights" :loading="loading" />
 
               <FaultLocationModuleCard
                 :selected-fault-county="selectedRegion"
@@ -4867,6 +4933,7 @@ onBeforeUnmount(() => {
                 :outage-detail-current-page="outageDetailCurrentPage"
                 :outage-detail-jump-page-input="outageDetailJumpPageInput"
                 :outage-detail-total-pages="outageDetailTotalPages"
+                :outage-detail-loading="outageDetailLoading"
                 :outage-detail-modal-visible="outageDetailModalVisible"
                 :selected-outage-detail="selectedOutageDetail"
                 :outage-detail-grid-body-ref-setter="setOutageDetailGridBodyRef"
@@ -4891,6 +4958,7 @@ onBeforeUnmount(() => {
                 :outage-range-chains="outageRangeChains"
                 :outage-range-total="outageRangeChainsTotal"
                 :outage-range-current-page="outageRangeChainsCurrentPage"
+                :outage-range-loading="outageRangeChainsLoading"
                 :show-outage-range-assessment-page="showOutageRangeAssessmentPage"
                 @open-outage-range-detail="openOutageRangeAssessmentPage"
                 @go-outage-range-page="goOutageRangeAssessmentPage"

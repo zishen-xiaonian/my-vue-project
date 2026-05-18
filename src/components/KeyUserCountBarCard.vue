@@ -27,8 +27,20 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  tableRows: {
+    type: Array,
+    default: () => [],
+  },
+  tableTotal: {
+    type: Number,
+    default: 0,
+  },
+  loading: {
+    type: Boolean,
+    default: false,
+  },
 })
-const emit = defineEmits(['open-detail-page', 'close-detail-page'])
+const emit = defineEmits(['open-detail-page', 'go-detail-page', 'close-detail-page'])
 
 const toCount = (value) => Math.max(0, Number(value) || 0)
 const TREND_MIN_TRACK_PERCENT = 16
@@ -83,13 +95,13 @@ const detailModalLoading = ref(false)
 const detailModalError = ref('')
 const detailModalRequestId = ref(0)
 const selectedTopDeviceId = ref('')
-const DETAIL_PAGE_SIZE = 8
+const DETAIL_PAGE_SIZE = 10
 const DETAIL_PAGE_MAX_BUTTONS = 5
 const detailCurrentPage = ref(1)
 const detailJumpPageInput = ref('')
 
-const normalizedDetailRows = computed(() =>
-  props.detailRows.map((item, index) => {
+const normalizeEquipmentRows = (rows) =>
+  rows.map((item, index) => {
     const equipmentId = String(item?.equipmentId || item?.deviceNo || '').trim() || '-'
     const deviceNo = String(item?.deviceNo || '').trim() || '-'
     const deviceName = String(item?.deviceName || '').trim() || '-'
@@ -111,17 +123,22 @@ const normalizedDetailRows = computed(() =>
       importantUserList,
       sensitiveUserList,
     }
-  }),
-)
+  })
+
+const normalizedDetailRows = computed(() => normalizeEquipmentRows(props.detailRows))
+const normalizedTableRows = computed(() => normalizeEquipmentRows(props.tableRows))
 
 const top5RankedRows = computed(() => normalizedDetailRows.value.slice(0, 5))
+const deviceImpactEmptyText = computed(() =>
+  props.loading ? '数据加载中...' : '当前区域暂无设备影响用户数据。',
+)
+const selectedDeviceEmptyText = computed(() =>
+  props.loading ? '数据加载中...' : '暂无设备数据。',
+)
 
-const detailTotalPages = computed(() => Math.max(Math.ceil(normalizedDetailRows.value.length / DETAIL_PAGE_SIZE), 1))
+const detailTotalPages = computed(() => Math.max(Math.ceil(props.tableTotal / DETAIL_PAGE_SIZE), 1))
 
-const pagedDetailRows = computed(() => {
-  const start = (detailCurrentPage.value - 1) * DETAIL_PAGE_SIZE
-  return normalizedDetailRows.value.slice(start, start + DETAIL_PAGE_SIZE)
-})
+const pagedDetailRows = computed(() => normalizedTableRows.value)
 
 const detailPageButtons = computed(() => {
   const total = detailTotalPages.value
@@ -305,8 +322,10 @@ const goDetailPage = (page) => {
   if (!Number.isFinite(page)) {
     return
   }
-  detailCurrentPage.value = Math.max(1, Math.min(detailTotalPages.value, Math.round(page)))
+  const targetPage = Math.max(1, Math.min(detailTotalPages.value, Math.round(page)))
+  detailCurrentPage.value = targetPage
   detailJumpPageInput.value = ''
+  emit('go-detail-page', targetPage)
 }
 
 const jumpToDetailPage = () => {
@@ -433,7 +452,7 @@ const formatPercent = (value) => `${value.toFixed(1)}%`
                 </button>
               </li>
             </ul>
-            <p v-else class="empty-tip">当前区域暂无设备影响用户数据。</p>
+            <p v-else class="empty-tip">{{ deviceImpactEmptyText }}</p>
           </article>
 
           <article class="space-selected-card">
@@ -446,7 +465,7 @@ const formatPercent = (value) => `${value.toFixed(1)}%`
               <p><span>停电事件数：</span>{{ selectedTopDevice.outageEventCount }}</p>
               <p><span>影响用户总数：</span>{{ selectedTopDevice.importantUserCount }}</p>
             </div>
-            <p v-else class="empty-tip">暂无设备数据。</p>
+            <p v-else class="empty-tip">{{ selectedDeviceEmptyText }}</p>
           </article>
         </section>
 
@@ -460,7 +479,11 @@ const formatPercent = (value) => `${value.toFixed(1)}%`
                 <span>敏感用户数</span>
                 <span>详情</span>
               </li>
-              <li v-for="item in pagedDetailRows" :key="item.id" class="key-user-grid user-detail-grid user-detail-grid-row">
+              <li
+                v-for="item in props.loading ? [] : pagedDetailRows"
+                :key="item.id"
+                class="key-user-grid user-detail-grid user-detail-grid-row"
+              >
                 <span class="user-detail-cell" :title="item.deviceNo">{{ item.deviceNo }}</span>
                 <span class="user-detail-cell" :title="item.deviceName">{{ item.deviceName }}</span>
                 <span class="user-detail-cell">{{ item.importantUserCount }}</span>
@@ -469,10 +492,10 @@ const formatPercent = (value) => `${value.toFixed(1)}%`
               </li>
             </ul>
 
-            <p v-if="normalizedDetailRows.length === 0" class="empty-tip">当前区域暂无设备影响用户数据。</p>
+            <p v-if="props.loading || normalizedTableRows.length === 0" class="empty-tip">{{ deviceImpactEmptyText }}</p>
           </div>
 
-          <footer class="user-detail-pagination" v-if="normalizedDetailRows.length > 0">
+          <footer class="user-detail-pagination" v-if="props.tableTotal > 0">
             <button
               v-for="page in detailPageButtons"
               :key="`space-detail-page-${page}`"

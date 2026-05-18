@@ -62,6 +62,10 @@ const props = defineProps({
     type: Number,
     default: 1,
   },
+  outageDetailLoading: {
+    type: Boolean,
+    default: false,
+  },
   outageDetailModalVisible: {
     type: Boolean,
     default: false,
@@ -293,7 +297,11 @@ const setFaultMode = (modeKey) => {
             <span>停电性质</span>
             <span>详情</span>
           </li>
-          <li v-for="item in props.pagedOutageDetailRows" :key="item.id" class="outage-detail-grid outage-detail-grid-row">
+          <li
+            v-for="item in props.outageDetailLoading ? [] : props.pagedOutageDetailRows"
+            :key="item.id"
+            class="outage-detail-grid outage-detail-grid-row"
+          >
             <span class="outage-detail-cell" :title="item.outageNumber">{{ item.outageNumber }}</span>
             <span class="outage-detail-cell" :title="item.countyName">{{ item.countyName }}</span>
             <span class="outage-detail-cell" :title="String(item.affectedConsCnt)">{{ item.affectedConsCnt }}</span>
@@ -302,7 +310,9 @@ const setFaultMode = (modeKey) => {
           </li>
         </ul>
 
-        <p v-if="props.pagedOutageDetailRows.length === 0" class="empty-tip">当前区域暂无停电事件详情。</p>
+        <p v-if="props.outageDetailLoading || props.pagedOutageDetailRows.length === 0" class="empty-tip">
+          {{ props.outageDetailLoading ? '数据加载中...' : '当前区域暂无停电事件详情。' }}
+        </p>
       </div>
 
       <footer :ref="props.outageDetailPaginationRefSetter" class="user-detail-pagination" v-if="props.filteredOutageDetailRowsLength > 0">
@@ -349,7 +359,6 @@ const setFaultMode = (modeKey) => {
           <p><span>影响户数：</span>{{ props.selectedOutageDetail.affectedConsCnt }}</p>
           <p><span>停电线路：</span>{{ props.selectedOutageDetail.rdtFeederName }}</p>
           <p><span>所属变电站：</span>{{ props.selectedOutageDetail.rdtSubsName }}</p>
-          <p><span>设备名称：</span>{{ props.selectedOutageDetail.faultEquipName }}</p>
         </div>
       </article>
     </div>
