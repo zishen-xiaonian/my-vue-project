@@ -85,6 +85,7 @@ const detailOutageCountFilter = ref('all')
 const detailCurrentPage = ref(1)
 const detailJumpPageInput = ref('')
 const detailModalVisible = ref(false)
+const detailModalViewportCentered = ref(false)
 const selectedUserDetail = ref(null)
 const detailModalLoading = ref(false)
 const detailModalError = ref('')
@@ -1049,6 +1050,7 @@ const closeDetailPage = () => {
   detailModalLoading.value = false
   detailModalError.value = ''
   detailModalVisible.value = false
+  detailModalViewportCentered.value = false
   selectedUserDetail.value = null
   timeDetailTableRequestId.value += 1
   timeDetailTableLoading.value = false
@@ -1125,7 +1127,8 @@ const jumpToTimeDetailPage = () => {
   goTimeDetailPage(Math.round(parsed))
 }
 
-const openUserDetailModal = async (item, queryRange = null) => {
+const openUserDetailModal = async (item, queryRange = null, options = {}) => {
+  detailModalViewportCentered.value = Boolean(options.viewportCentered)
   detailModalVisible.value = true
   detailModalLoading.value = true
   detailModalError.value = ''
@@ -1178,7 +1181,7 @@ const openUserDetailModal = async (item, queryRange = null) => {
 }
 
 const openTimeDetailUserModal = (item) => {
-  void openUserDetailModal(item, resolveTimeDetailRange())
+  void openUserDetailModal(item, resolveTimeDetailRange(), { viewportCentered: true })
 }
 
 const closeUserDetailModal = () => {
@@ -1186,6 +1189,7 @@ const closeUserDetailModal = () => {
   detailModalLoading.value = false
   detailModalError.value = ''
   detailModalVisible.value = false
+  detailModalViewportCentered.value = false
   selectedUserDetail.value = null
 }
 
@@ -1572,7 +1576,12 @@ watch(
         </article>
       </div>
 
-      <div v-if="detailModalVisible && selectedUserDetail" class="user-detail-modal-mask" @click.self="closeUserDetailModal">
+      <div
+        v-if="detailModalVisible && selectedUserDetail"
+        class="user-detail-modal-mask"
+        :class="{ 'time-detail-user-modal-mask': detailModalViewportCentered }"
+        @click.self="closeUserDetailModal"
+      >
         <article class="user-detail-modal">
           <button type="button" class="user-detail-modal-close" @click="closeUserDetailModal">×</button>
           <h4>用户详情</h4>
@@ -2163,6 +2172,19 @@ watch(
 .trend-detail-event-list strong {
   color: #b7e7ff;
   font-weight: 700;
+}
+
+.time-detail-user-modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  padding: 24px;
+  background: rgba(0, 8, 20, 0.7);
+}
+
+.time-detail-user-modal-mask .user-detail-modal {
+  width: min(560px, 100%);
+  max-height: min(680px, calc(100vh - 48px));
 }
 
 @media (max-width: 760px) {
